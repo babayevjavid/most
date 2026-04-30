@@ -7,16 +7,41 @@
   <style>
     :root {
       --text: #ecf1ff;
-      --muted: #9ca8c7;
-      --border: #253154;
-      --card: rgba(15, 22, 44, 0.78);
-      --chip: rgba(98, 126, 255, 0.2);
+      --muted: #99a7d1;
+      --border: #2a3a67;
+      --card: rgba(15, 22, 44, 0.8);
+      --chip: rgba(100, 129, 255, 0.18);
       --accent: #6d7bff;
-      --accent-2: #4ade80;
-      --danger: #f87171;
+      --accent-soft: #95a2ff;
+      --good: #38c984;
+      --danger: #f06d6d;
+      --msg-bg: #1b2748;
+      --msg-border: #3b4f89;
     }
-
-    * { box-sizing: border-box; }
+    [data-theme="sunset"] {
+      --accent: #ff8c5a;
+      --accent-soft: #ffb08c;
+      --chip: rgba(255, 138, 94, 0.2);
+      --msg-bg: #402437;
+      --msg-border: #7a4b65;
+    }
+    [data-theme="forest"] {
+      --accent: #4dcf8f;
+      --accent-soft: #8ce6b8;
+      --chip: rgba(79, 205, 143, 0.2);
+      --msg-bg: #1f3b36;
+      --msg-border: #3f6f63;
+    }
+    [data-theme="midnight"] {
+      --accent: #8f6dff;
+      --accent-soft: #b39fff;
+      --chip: rgba(143, 109, 255, 0.2);
+      --msg-bg: #211d44;
+      --msg-border: #4c4490;
+    }
+    * {
+      box-sizing: border-box;
+    }
     body {
       margin: 0;
       min-height: 100vh;
@@ -56,9 +81,10 @@
       text-transform: lowercase;
     }
 
-    .pill {
+    .pill,
+    .theme-pill {
       font-size: 12px;
-      border: 1px solid #3b4b7a;
+      border: 1px solid #3f528f;
       background: var(--chip);
       color: #b8c8ff;
       border-radius: 999px;
@@ -119,8 +145,8 @@
     }
     button:hover { transform: translateY(-1px); filter: brightness(1.02); }
     button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
-    .primary { background: linear-gradient(140deg, var(--accent), #98a6ff); color: #f5f7ff; }
-    .success { background: linear-gradient(140deg, var(--accent-2), #9ef0be); color: #072211; }
+    .primary { background: linear-gradient(140deg, var(--accent), var(--accent-soft)); color: #f5f7ff; }
+    .success { background: linear-gradient(140deg, var(--good), #94efbf); color: #052012; }
     .danger { background: linear-gradient(140deg, var(--danger), #f9a8a8); color: #2f0808; }
 
     .screen {
@@ -152,11 +178,46 @@
 
     .message {
       margin: 8px 0;
-      padding: 9px 12px;
+      padding: 10px 12px;
       border-radius: 10px;
-      background: #1b2748;
-      border: 1px solid #34457a;
+      background: var(--msg-bg);
+      border: 1px solid var(--msg-border);
       color: #e2e9ff;
+    }
+    .message-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+    .sender {
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .translate {
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 8px;
+      border: 1px solid #4d5f95;
+      background: rgba(10, 18, 37, 0.55);
+      color: #c9d4fb;
+      cursor: pointer;
+    }
+    .reaction-row {
+      margin-top: 8px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .reaction-btn {
+      font-size: 12px;
+      line-height: 1;
+      padding: 5px 7px;
+      border-radius: 8px;
+      border: 1px solid #4f6298;
+      background: rgba(8, 16, 34, 0.65);
+      color: #d7e3ff;
       cursor: pointer;
     }
 
@@ -180,6 +241,23 @@
       color: var(--text);
       outline: none;
     }
+    input[type="color"] {
+      width: 100%;
+      height: 42px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: transparent;
+      padding: 4px;
+    }
+    select {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      background: rgba(7, 12, 25, 0.6);
+      color: var(--text);
+      outline: none;
+    }
 
     @media (max-width: 860px) {
       .layout { grid-template-columns: 1fr; }
@@ -191,11 +269,29 @@
   <div class="app">
     <div class="header">
       <div class="brand">most</div>
-      <div id="stateChip" class="pill">Idle</div>
+      <div>
+        <span id="themeBadge" class="theme-pill">Theme: nebula</span>
+        <span id="stateChip" class="pill">Idle</span>
+      </div>
     </div>
 
     <div class="layout">
       <aside class="sidebar">
+        <div class="card">
+          <div class="label">Profile (saved on device)</div>
+          <input id="nicknameInput" type="text" maxlength="24" placeholder="Nickname" />
+          <div style="height:8px;"></div>
+          <input id="colorInput" type="color" />
+          <div style="height:8px;"></div>
+          <select id="themeSelect">
+            <option value="nebula">Nebula</option>
+            <option value="sunset">Sunset</option>
+            <option value="forest">Forest</option>
+            <option value="midnight">Midnight</option>
+          </select>
+          <button id="saveProfileBtn" class="success" style="margin-top:10px;">Save Profile</button>
+        </div>
+
         <div class="card">
           <div class="label">Match Size</div>
           <div class="mode-row">
@@ -225,7 +321,7 @@
         </section>
 
         <section id="chatScreen" class="screen">
-          <div class="chat-head">Click any incoming message to toggle translated text.</div>
+          <div class="chat-head">Use Translate on each message and react with emoji.</div>
           <div id="chatBox" class="chat-box"></div>
           <form id="chatForm" class="composer">
             <input id="chatInput" type="text" placeholder="Type a message..." autocomplete="off" />
@@ -238,12 +334,17 @@
 
   <script>
     const stateChip = document.getElementById("stateChip");
+    const themeBadge = document.getElementById("themeBadge");
     const queueStatus = document.getElementById("queueStatus");
     const roomInfo = document.getElementById("roomInfo");
     const join2 = document.getElementById("join2");
     const join4 = document.getElementById("join4");
     const leaveQueueBtn = document.getElementById("leaveQueue");
     const leaveRoomBtn = document.getElementById("leaveRoom");
+    const nicknameInput = document.getElementById("nicknameInput");
+    const colorInput = document.getElementById("colorInput");
+    const themeSelect = document.getElementById("themeSelect");
+    const saveProfileBtn = document.getElementById("saveProfileBtn");
     const lobbyScreen = document.getElementById("lobbyScreen");
     const chatScreen = document.getElementById("chatScreen");
     const chatBox = document.getElementById("chatBox");
@@ -253,10 +354,21 @@
     const wsProtocol = location.protocol === "https:" ? "wss" : "ws";
     const ws = new WebSocket(`${wsProtocol}://${location.host}/ws`);
 
+    const profile = loadProfile();
+    let myClientId = profile.clientId;
+    let myNickname = profile.nickname;
+    let myColor = profile.color;
+    let myTheme = profile.theme;
     let currentRoom = null;
     let selectedSize = null;
     let inQueue = false;
     let inRoom = false;
+    const messageEls = new Map();
+
+    nicknameInput.value = myNickname;
+    colorInput.value = myColor;
+    themeSelect.value = myTheme;
+    applyTheme(myTheme);
 
     function renderStateChip() {
       let label = "Idle";
@@ -283,6 +395,36 @@
       chatScreen.classList.add("active");
     }
 
+    function applyTheme(theme) {
+      document.documentElement.setAttribute("data-theme", theme);
+      themeBadge.textContent = `Theme: ${theme}`;
+    }
+
+    function loadProfile() {
+      let raw = null;
+      try {
+        raw = JSON.parse(localStorage.getItem("most_profile") || "{}");
+      } catch (_) {
+        raw = {};
+      }
+      return {
+        clientId: raw.clientId || crypto.randomUUID(),
+        nickname: raw.nickname || "Guest",
+        color: raw.color || "#6d7bff",
+        theme: raw.theme || "nebula"
+      };
+    }
+
+    function saveProfileToDevice() {
+      const payload = {
+        clientId: myClientId,
+        nickname: myNickname,
+        color: myColor,
+        theme: myTheme
+      };
+      localStorage.setItem("most_profile", JSON.stringify(payload));
+    }
+
     function appendSystemMessage(text) {
       const el = document.createElement("div");
       el.className = "system";
@@ -291,39 +433,162 @@
       chatBox.scrollTop = chatBox.scrollHeight;
     }
 
-    function appendMessage(text) {
+    function updateReactionRow(target, message) {
+      target.innerHTML = "";
+      const reactions = message.reactions || {};
+      const options = ["👍", "😂", "🔥", "❤️"];
+      for (const emoji of options) {
+        const count = (reactions[emoji] || []).length;
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "reaction-btn";
+        btn.textContent = count ? `${emoji} ${count}` : emoji;
+        btn.addEventListener("click", () => {
+          if (!currentRoom) return;
+          ws.send(JSON.stringify({ type: "react", message_id: message.id, emoji }));
+        });
+        target.appendChild(btn);
+      }
+    }
+
+    function appendMessage(message) {
       const el = document.createElement("div");
       el.className = "message";
-      el.dataset.original = text;
-      el.dataset.translated = "";
-      el.dataset.isTranslated = "false";
-      el.textContent = text;
+      el.dataset.messageId = message.id;
 
-      el.addEventListener("click", async () => {
-        const isTranslated = el.dataset.isTranslated === "true";
+      const head = document.createElement("div");
+      head.className = "message-head";
+
+      const sender = document.createElement("div");
+      sender.className = "sender";
+      sender.textContent = message.sender.nickname;
+      sender.style.color = message.sender.color || "#c8d5ff";
+      head.appendChild(sender);
+
+      const translateBtn = document.createElement("button");
+      translateBtn.type = "button";
+      translateBtn.className = "translate";
+      translateBtn.textContent = "Translate";
+      head.appendChild(translateBtn);
+
+      const content = document.createElement("div");
+      content.textContent = message.text;
+      content.dataset.original = message.text;
+      content.dataset.translated = "";
+      content.dataset.isTranslated = "false";
+
+      translateBtn.addEventListener("click", async () => {
+        const isTranslated = content.dataset.isTranslated === "true";
         if (!isTranslated) {
-          if (!el.dataset.translated) {
-            el.dataset.translated = await mockTranslate(el.dataset.original);
+          if (!content.dataset.translated) {
+            content.dataset.translated = await mockTranslate(content.dataset.original);
           }
-          el.textContent = el.dataset.translated;
-          el.dataset.isTranslated = "true";
+          content.textContent = content.dataset.translated;
+          content.dataset.isTranslated = "true";
+          translateBtn.textContent = "Original";
         } else {
-          el.textContent = el.dataset.original;
-          el.dataset.isTranslated = "false";
+          content.textContent = content.dataset.original;
+          content.dataset.isTranslated = "false";
+          translateBtn.textContent = "Translate";
         }
       });
 
+      const reactionRow = document.createElement("div");
+      reactionRow.className = "reaction-row";
+      updateReactionRow(reactionRow, message);
+
+      el.appendChild(head);
+      el.appendChild(content);
+      el.appendChild(reactionRow);
       chatBox.appendChild(el);
+      messageEls.set(message.id, { root: el, reactionRow, message });
       chatBox.scrollTop = chatBox.scrollHeight;
     }
 
     async function mockTranslate(text) {
-      await new Promise((resolve) => setTimeout(resolve, 200));
-      return `[Translated] ${text.split("").reverse().join("")}`;
+      await new Promise((resolve) => setTimeout(resolve, 220));
+
+      const hasCyrillic = /[А-Яа-яЁё]/.test(text);
+      if (!hasCyrillic) {
+        return `[Translation unavailable] Only Russian input is currently supported.`;
+      }
+
+      const phraseMap = new Map([
+        ["привет", "hello"],
+        ["как дела", "how are you"],
+        ["спасибо", "thanks"],
+        ["пожалуйста", "please"],
+        ["да", "yes"],
+        ["нет", "no"],
+        ["доброе утро", "good morning"],
+        ["добрый день", "good afternoon"],
+        ["добрый вечер", "good evening"],
+        ["пока", "bye"],
+        ["извини", "sorry"],
+        ["я здесь", "i am here"],
+        ["я готов", "i am ready"],
+        ["поехали", "let's go"],
+        ["где ты", "where are you"],
+        ["я не понимаю", "i don't understand"]
+      ]);
+
+      const wordMap = new Map([
+        ["привет", "hello"],
+        ["мир", "world"],
+        ["я", "i"],
+        ["ты", "you"],
+        ["он", "he"],
+        ["она", "she"],
+        ["мы", "we"],
+        ["они", "they"],
+        ["готов", "ready"],
+        ["готова", "ready"],
+        ["иду", "coming"],
+        ["здесь", "here"],
+        ["там", "there"],
+        ["комната", "room"],
+        ["игра", "game"],
+        ["начали", "started"],
+        ["подожди", "wait"],
+        ["почему", "why"],
+        ["где", "where"],
+        ["когда", "when"],
+        ["сейчас", "now"],
+        ["позже", "later"],
+        ["спасибо", "thanks"]
+      ]);
+
+      let normalized = text.toLowerCase();
+      for (const [ru, en] of phraseMap.entries()) {
+        normalized = normalized.replaceAll(ru, en);
+      }
+
+      const translated = normalized.replace(/[а-яё]+/gi, (token) => {
+        const lower = token.toLowerCase();
+        return wordMap.get(lower) || token;
+      });
+
+      return `[EN] ${translated}`;
     }
 
     join2.addEventListener("click", () => joinQueue(2));
     join4.addEventListener("click", () => joinQueue(4));
+    saveProfileBtn.addEventListener("click", () => {
+      myNickname = (nicknameInput.value || "Guest").trim().slice(0, 24) || "Guest";
+      myColor = colorInput.value || "#6d7bff";
+      myTheme = themeSelect.value || "nebula";
+      applyTheme(myTheme);
+      saveProfileToDevice();
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: "profile_update",
+          nickname: myNickname,
+          color: myColor,
+          theme: myTheme
+        }));
+      }
+      appendSystemMessage("Profile saved on this device.");
+    });
 
     function joinQueue(size) {
       if (ws.readyState !== WebSocket.OPEN) return;
@@ -361,6 +626,13 @@
     });
 
     ws.onopen = () => {
+      ws.send(JSON.stringify({
+        type: "hello",
+        client_id: myClientId,
+        nickname: myNickname,
+        color: myColor,
+        theme: myTheme
+      }));
       queueStatus.textContent = "Connected. Choose 2-player or 4-player queue.";
       renderStateChip();
       renderButtons();
@@ -373,18 +645,38 @@
         queueStatus.textContent = data.message;
       }
 
+      if (data.type === "hello_ack") {
+        myClientId = data.client_id;
+        myNickname = data.nickname;
+        myColor = data.color;
+        myTheme = data.theme;
+        nicknameInput.value = myNickname;
+        colorInput.value = myColor;
+        themeSelect.value = myTheme;
+        applyTheme(myTheme);
+        saveProfileToDevice();
+      }
+
       if (data.type === "queue_status" && selectedSize === data.size) {
         queueStatus.textContent = data.message;
       }
 
-      if (data.type === "matched") {
+      if (data.type === "matched" || data.type === "reconnected") {
         inQueue = false;
         inRoom = true;
         selectedSize = data.size;
         currentRoom = data.room_id;
+        if (data.theme) {
+          applyTheme(data.theme);
+        }
         roomInfo.textContent = `Room ${currentRoom} (${data.size} players)`;
+        chatBox.innerHTML = "";
+        messageEls.clear();
+        for (const message of (data.messages || [])) {
+          appendMessage(message);
+        }
         showChat();
-        appendSystemMessage("Matched. Chat started.");
+        appendSystemMessage(data.type === "reconnected" ? "Reconnected to your room." : "Matched. Chat started.");
       }
 
       if (data.type === "queue_left") {
@@ -402,11 +694,28 @@
       }
 
       if (data.type === "chat") {
-        appendMessage(data.text);
+        appendMessage(data.message);
       }
 
-      if (data.type === "user_disconnected" || data.type === "user_left_room") {
+      if (data.type === "reaction_update") {
+        const store = messageEls.get(data.message_id);
+        if (store) {
+          store.message.reactions = data.reactions || {};
+          updateReactionRow(store.reactionRow, store.message);
+        }
+      }
+
+      if (
+        data.type === "user_disconnected" ||
+        data.type === "user_left_room" ||
+        data.type === "user_reconnected" ||
+        data.type === "user_removed"
+      ) {
         appendSystemMessage(data.message);
+      }
+
+      if (data.type === "profile_saved") {
+        appendSystemMessage("Profile synced.");
       }
 
       if (data.type === "error") {
@@ -433,7 +742,6 @@
 
       const text = chatInput.value.trim();
       if (!text) return;
-      appendSystemMessage(`You: ${text}`);
       ws.send(JSON.stringify({ type: "chat", text }));
       chatInput.value = "";
       chatInput.focus();
