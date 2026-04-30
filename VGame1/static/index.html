@@ -3,128 +3,285 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>4-Player Matchmaking Chat</title>
+  <title>most</title>
   <style>
     :root {
-      --bg: #0f172a;
-      --card: #111827;
-      --muted: #9ca3af;
-      --text: #f3f4f6;
-      --accent: #22c55e;
-      --border: #1f2937;
+      --text: #ecf1ff;
+      --muted: #9ca8c7;
+      --border: #253154;
+      --card: rgba(15, 22, 44, 0.78);
+      --chip: rgba(98, 126, 255, 0.2);
+      --accent: #6d7bff;
+      --accent-2: #4ade80;
+      --danger: #f87171;
     }
+
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-      background: linear-gradient(135deg, #0b1220, #0f172a);
-      color: var(--text);
       min-height: 100vh;
+      color: var(--text);
+      font-family: Inter, Segoe UI, Roboto, Arial, sans-serif;
+      background:
+        radial-gradient(circle at 20% 20%, #253a84 0%, transparent 45%),
+        radial-gradient(circle at 85% 0%, #3d2468 0%, transparent 35%),
+        linear-gradient(140deg, #0a0f23 0%, #111933 60%, #0f1429 100%);
       display: grid;
       place-items: center;
       padding: 20px;
     }
+
     .app {
-      width: min(760px, 100%);
-      background: rgba(17, 24, 39, 0.9);
+      width: min(920px, 100%);
       border: 1px solid var(--border);
-      border-radius: 16px;
+      border-radius: 22px;
+      background: var(--card);
+      backdrop-filter: blur(12px);
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
       overflow: hidden;
-      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
     }
+
     .header {
-      padding: 16px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 18px 22px;
       border-bottom: 1px solid var(--border);
-      font-weight: 600;
     }
-    .screen { display: none; padding: 20px; }
-    .screen.active { display: block; }
-    .status { color: var(--muted); margin-bottom: 12px; }
+
+    .brand {
+      font-size: 22px;
+      letter-spacing: 0.5px;
+      font-weight: 800;
+      text-transform: lowercase;
+    }
+
     .pill {
-      display: inline-block;
       font-size: 12px;
-      padding: 6px 10px;
+      border: 1px solid #3b4b7a;
+      background: var(--chip);
+      color: #b8c8ff;
       border-radius: 999px;
-      background: rgba(34, 197, 94, 0.15);
-      color: #86efac;
-      border: 1px solid rgba(34, 197, 94, 0.4);
-      margin-bottom: 10px;
+      padding: 6px 10px;
+      display: inline-block;
     }
-    .chat-box {
-      height: 340px;
-      overflow: auto;
+
+    .layout {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      min-height: 620px;
+    }
+
+    .sidebar {
+      border-right: 1px solid var(--border);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .card {
       border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 12px;
-      background: rgba(2, 6, 23, 0.5);
-      margin-bottom: 12px;
+      border-radius: 14px;
+      padding: 14px;
+      background: rgba(5, 10, 22, 0.35);
     }
-    .msg {
-      padding: 8px 10px;
-      border-radius: 8px;
-      background: #1f2937;
-      margin: 8px 0;
-      cursor: pointer;
-      transition: background 0.15s;
-      user-select: none;
+
+    .label {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--muted);
+      margin-bottom: 8px;
     }
-    .msg:hover { background: #374151; }
-    .system { color: #93c5fd; font-size: 14px; margin: 8px 0; }
-    .composer { display: flex; gap: 8px; }
-    input[type="text"] {
-      flex: 1;
-      border: 1px solid var(--border);
-      background: #0b1220;
-      color: var(--text);
-      border-radius: 10px;
-      padding: 10px 12px;
-      outline: none;
+
+    .status {
+      color: #cbd6ff;
+      line-height: 1.35;
+      min-height: 40px;
     }
+
+    .mode-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
     button {
       border: none;
       border-radius: 10px;
       padding: 10px 14px;
       cursor: pointer;
-      background: var(--accent);
-      color: #052e16;
-      font-weight: 600;
+      font-weight: 650;
+      color: #0d1537;
+      background: #d8e1ff;
+      transition: transform 0.14s ease, filter 0.14s ease;
+    }
+    button:hover { transform: translateY(-1px); filter: brightness(1.02); }
+    button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
+    .primary { background: linear-gradient(140deg, var(--accent), #98a6ff); color: #f5f7ff; }
+    .success { background: linear-gradient(140deg, var(--accent-2), #9ef0be); color: #072211; }
+    .danger { background: linear-gradient(140deg, var(--danger), #f9a8a8); color: #2f0808; }
+
+    .screen {
+      padding: 20px;
+      display: none;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .screen.active { display: flex; }
+
+    .chat-head {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 14px;
+      color: #d0dbff;
+      background: rgba(5, 12, 28, 0.45);
+    }
+
+    .chat-box {
+      flex: 1;
+      min-height: 380px;
+      max-height: 440px;
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 12px;
+      background: rgba(3, 8, 20, 0.55);
+    }
+
+    .message {
+      margin: 8px 0;
+      padding: 9px 12px;
+      border-radius: 10px;
+      background: #1b2748;
+      border: 1px solid #34457a;
+      color: #e2e9ff;
+      cursor: pointer;
+    }
+
+    .system {
+      margin: 8px 0;
+      color: #9ec5ff;
+      font-size: 14px;
+    }
+
+    .composer {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+    }
+
+    input[type="text"] {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 11px 12px;
+      background: rgba(7, 12, 25, 0.6);
+      color: var(--text);
+      outline: none;
+    }
+
+    @media (max-width: 860px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
     }
   </style>
 </head>
 <body>
   <div class="app">
-    <div class="header">Real-Time 4-Player Matchmaking Chat</div>
+    <div class="header">
+      <div class="brand">most</div>
+      <div id="stateChip" class="pill">Idle</div>
+    </div>
 
-    <section id="lobbyScreen" class="screen active">
-      <div class="pill">Lobby / Waiting</div>
-      <div id="queueStatus" class="status">Connecting...</div>
-      <div class="status">You will be auto-matched when 4 players are in queue.</div>
-    </section>
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="card">
+          <div class="label">Match Size</div>
+          <div class="mode-row">
+            <button id="join2" class="primary">Join 2-Player</button>
+            <button id="join4" class="primary">Join 4-Player</button>
+          </div>
+        </div>
 
-    <section id="chatScreen" class="screen">
-      <div class="pill">Active Chat</div>
-      <div id="roomInfo" class="status"></div>
-      <div id="chatBox" class="chat-box"></div>
-      <form id="chatForm" class="composer">
-        <input id="chatInput" type="text" placeholder="Type message..." autocomplete="off" />
-        <button type="submit">Send</button>
-      </form>
-      <div class="status">Tip: click a message to toggle translated text.</div>
-    </section>
+        <div class="card">
+          <div class="label">Queue</div>
+          <div id="queueStatus" class="status">Connecting...</div>
+          <button id="leaveQueue" class="danger" style="margin-top:10px;">Leave Queue</button>
+        </div>
+
+        <div class="card">
+          <div class="label">Room</div>
+          <div id="roomInfo" class="status">Not in a room.</div>
+          <button id="leaveRoom" class="danger" style="margin-top:10px;">Exit Chat</button>
+        </div>
+      </aside>
+
+      <main>
+        <section id="lobbyScreen" class="screen active">
+          <div class="chat-head">
+            Choose matchmaking mode and join a queue. Leaving queue or chat will keep you out until you join again.
+          </div>
+        </section>
+
+        <section id="chatScreen" class="screen">
+          <div class="chat-head">Click any incoming message to toggle translated text.</div>
+          <div id="chatBox" class="chat-box"></div>
+          <form id="chatForm" class="composer">
+            <input id="chatInput" type="text" placeholder="Type a message..." autocomplete="off" />
+            <button class="success" type="submit">Send</button>
+          </form>
+        </section>
+      </main>
+    </div>
   </div>
 
   <script>
-    const lobbyScreen = document.getElementById("lobbyScreen");
-    const chatScreen = document.getElementById("chatScreen");
+    const stateChip = document.getElementById("stateChip");
     const queueStatus = document.getElementById("queueStatus");
     const roomInfo = document.getElementById("roomInfo");
+    const join2 = document.getElementById("join2");
+    const join4 = document.getElementById("join4");
+    const leaveQueueBtn = document.getElementById("leaveQueue");
+    const leaveRoomBtn = document.getElementById("leaveRoom");
+    const lobbyScreen = document.getElementById("lobbyScreen");
+    const chatScreen = document.getElementById("chatScreen");
     const chatBox = document.getElementById("chatBox");
     const chatForm = document.getElementById("chatForm");
     const chatInput = document.getElementById("chatInput");
 
     const wsProtocol = location.protocol === "https:" ? "wss" : "ws";
     const ws = new WebSocket(`${wsProtocol}://${location.host}/ws`);
+
     let currentRoom = null;
+    let selectedSize = null;
+    let inQueue = false;
+    let inRoom = false;
+
+    function renderStateChip() {
+      let label = "Idle";
+      if (inRoom) label = "In Chat";
+      else if (inQueue) label = "Waiting";
+      stateChip.textContent = label;
+    }
+
+    function renderButtons() {
+      const connected = ws.readyState === WebSocket.OPEN;
+      join2.disabled = !connected || inRoom;
+      join4.disabled = !connected || inRoom;
+      leaveQueueBtn.disabled = !connected || !inQueue;
+      leaveRoomBtn.disabled = !connected || !inRoom;
+    }
+
+    function showLobby() {
+      lobbyScreen.classList.add("active");
+      chatScreen.classList.remove("active");
+    }
+
+    function showChat() {
+      lobbyScreen.classList.remove("active");
+      chatScreen.classList.add("active");
+    }
 
     function appendSystemMessage(text) {
       const el = document.createElement("div");
@@ -134,9 +291,9 @@
       chatBox.scrollTop = chatBox.scrollHeight;
     }
 
-    function appendChatMessage(text) {
+    function appendMessage(text) {
       const el = document.createElement("div");
-      el.className = "msg";
+      el.className = "message";
       el.dataset.original = text;
       el.dataset.translated = "";
       el.dataset.isTranslated = "false";
@@ -161,53 +318,128 @@
     }
 
     async function mockTranslate(text) {
-      await new Promise((resolve) => setTimeout(resolve, 250));
+      await new Promise((resolve) => setTimeout(resolve, 200));
       return `[Translated] ${text.split("").reverse().join("")}`;
     }
 
+    join2.addEventListener("click", () => joinQueue(2));
+    join4.addEventListener("click", () => joinQueue(4));
+
+    function joinQueue(size) {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      selectedSize = size;
+      ws.send(JSON.stringify({ type: "join_queue", size }));
+      inQueue = true;
+      inRoom = false;
+      currentRoom = null;
+      roomInfo.textContent = "Waiting for match...";
+      queueStatus.textContent = `Joining ${size}-player queue...`;
+      showLobby();
+      renderStateChip();
+      renderButtons();
+    }
+
+    leaveQueueBtn.addEventListener("click", () => {
+      if (ws.readyState !== WebSocket.OPEN || !inQueue) return;
+      ws.send(JSON.stringify({ type: "leave_queue" }));
+      inQueue = false;
+      queueStatus.textContent = "You left the queue.";
+      renderStateChip();
+      renderButtons();
+    });
+
+    leaveRoomBtn.addEventListener("click", () => {
+      if (ws.readyState !== WebSocket.OPEN || !inRoom) return;
+      ws.send(JSON.stringify({ type: "leave_room" }));
+      inRoom = false;
+      inQueue = false;
+      currentRoom = null;
+      roomInfo.textContent = "Not in a room.";
+      showLobby();
+      renderStateChip();
+      renderButtons();
+    });
+
     ws.onopen = () => {
-      queueStatus.textContent = "Connected. Entered waiting pool.";
+      queueStatus.textContent = "Connected. Choose 2-player or 4-player queue.";
+      renderStateChip();
+      renderButtons();
     };
 
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
 
-      if (data.type === "queue_status") {
+      if (data.type === "connected") {
         queueStatus.textContent = data.message;
       }
+
+      if (data.type === "queue_status" && selectedSize === data.size) {
+        queueStatus.textContent = data.message;
+      }
+
       if (data.type === "matched") {
+        inQueue = false;
+        inRoom = true;
+        selectedSize = data.size;
         currentRoom = data.room_id;
-        roomInfo.textContent = `Room ID: ${currentRoom}`;
-        lobbyScreen.classList.remove("active");
-        chatScreen.classList.add("active");
-        appendSystemMessage("Matched! You are now in active chat.");
+        roomInfo.textContent = `Room ${currentRoom} (${data.size} players)`;
+        showChat();
+        appendSystemMessage("Matched. Chat started.");
       }
+
+      if (data.type === "queue_left") {
+        inQueue = false;
+        renderStateChip();
+        renderButtons();
+      }
+
+      if (data.type === "room_left") {
+        inRoom = false;
+        inQueue = false;
+        currentRoom = null;
+        roomInfo.textContent = "Not in a room.";
+        showLobby();
+      }
+
       if (data.type === "chat") {
-        appendChatMessage(data.text);
+        appendMessage(data.text);
       }
-      if (data.type === "user_disconnected") {
+
+      if (data.type === "user_disconnected" || data.type === "user_left_room") {
         appendSystemMessage(data.message);
       }
+
+      if (data.type === "error") {
+        appendSystemMessage(data.message);
+      }
+
+      renderStateChip();
+      renderButtons();
     };
 
     ws.onclose = () => {
-      if (currentRoom) {
-        appendSystemMessage("Connection closed.");
-      } else {
-        queueStatus.textContent = "Disconnected from server.";
-      }
+      queueStatus.textContent = "Connection closed.";
+      inQueue = false;
+      inRoom = false;
+      currentRoom = null;
+      showLobby();
+      renderStateChip();
+      renderButtons();
     };
 
     chatForm.addEventListener("submit", (event) => {
       event.preventDefault();
+      if (!inRoom || ws.readyState !== WebSocket.OPEN) return;
+
       const text = chatInput.value.trim();
       if (!text) return;
-
       appendSystemMessage(`You: ${text}`);
       ws.send(JSON.stringify({ type: "chat", text }));
       chatInput.value = "";
       chatInput.focus();
     });
+
+    renderButtons();
   </script>
 </body>
 </html>
