@@ -1,0 +1,10 @@
+return {
+	ABILITY_ID = "LightKnives",
+	COOLDOWN_SEC = 3,
+	BOLT_SPEED = 130,
+	BOLT_DAMAGE = 10,
+	BOLT_LIFETIME = 2,
+	BURST_WINDOW = 0.35,
+	MAX_BURST = 3,
+	COLOR = Color3.fromRGB(255, 230, 120),
+}

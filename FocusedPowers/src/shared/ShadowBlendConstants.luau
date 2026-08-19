@@ -1,0 +1,7 @@
+return {
+	ABILITY_ID = "ShadowBlend",
+	COOLDOWN_SEC = 10,
+	DURATION_SEC = 4,
+	SPEED_MULT = 1.3,
+	TRANSPARENCY = 0.72,
+}

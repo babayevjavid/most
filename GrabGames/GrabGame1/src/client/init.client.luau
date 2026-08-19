@@ -1,0 +1,1 @@
+-- UI intentionally removed. Tycoon status is displayed in the world.

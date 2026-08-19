@@ -1,0 +1,11 @@
+local CosmicGameService = require(script:WaitForChild("CosmicGameService"))
+local CosmicWorldService = require(script:WaitForChild("CosmicWorldService"))
+local CosmicDataService = require(script:WaitForChild("CosmicDataService"))
+local CosmicLightingService = require(script:WaitForChild("CosmicLightingService"))
+local CosmicBaseService = require(script:WaitForChild("CosmicBaseService"))
+
+CosmicGameService.Init()
+CosmicLightingService.Apply()
+CosmicWorldService.Init()
+CosmicBaseService.Init()
+CosmicDataService.Init()

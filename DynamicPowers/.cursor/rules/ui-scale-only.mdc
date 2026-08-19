@@ -1,0 +1,11 @@
+---
+description: DynamicPowers UI uses scale-based layout only (no pixel offsets).
+globs: "**/*.luau"
+alwaysApply: false
+---
+
+# UI layout (DynamicPowers)
+
+- For **ScreenGui** trees and **BillboardGui** children, position and size with **scale only**: `UDim2.fromScale`, `UDim.new(scale, 0)` for padding/corner proportion, `UIPadding` with scale.
+- Do **not** use non-zero **offset** components on `UDim2` / `UDim` for layout of these UIs.
+- **Exception**: `BillboardGui.StudsOffset` is world-space (studs), not 2D UI offset — use as needed (e.g. above the head).

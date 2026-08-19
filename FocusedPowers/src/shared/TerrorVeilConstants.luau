@@ -1,0 +1,9 @@
+return {
+	ABILITY_ID = "TerrorVeil",
+	COOLDOWN_SEC = 8,
+	CONE_ANGLE_DEG = 60,
+	RANGE = 35,
+	DURATION_SEC = 3,
+	SLOW_MULT = 0.45,
+	DOT_DAMAGE = 4,
+}

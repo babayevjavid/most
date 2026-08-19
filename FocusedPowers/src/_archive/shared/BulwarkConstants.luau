@@ -1,0 +1,10 @@
+return {
+	ABILITY_ID = "Bulwark",
+	COOLDOWN_SEC = 12,
+	CHARGE_SPEED = 52,
+	HIT_RADIUS = 5,
+	BASE_DAMAGE = 14,
+	STEEL_MULT = 1.75,
+	PUSH_SPEED = 42,
+	PUSH_UP = 9,
+}

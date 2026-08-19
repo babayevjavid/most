@@ -1,0 +1,35 @@
+MCU — Roblox hero battler (Rojo + Luau, --!strict).
+Code lives in this folder; morphs/VFX/anims live in Studio under ReplicatedStorage.Assets (not in git).
+Rojo map: src/shared → RS.Shared, src/server → SSS.Server, src/client → StarterPlayerScripts.Client.
+
+PLAY LOOP
+Character select → morph into hero → HUD abilities → death screen (grey overlay + countdown) → menu.
+Tokens/Robux shop, nameplates, sprint, ragdoll, beam clash, high-fall landing.
+
+HEROES (heroId) — server *Service + often *Client
+- scarlet_witch  ScarletWitchService / HexFlightService
+- jean_grey      MarvelGirlService + TelekinesisService (skins: marvel_girl, phoenix)
+- invisible_woman InvisibleWomanService
+- captain_marvel CaptainMarvelService + PhotonFlightService
+- loki, dagger, iceman
+Roster/keys/icons: CharacterRegistry. Numbers/tuning: GameConstants. Remotes: Remotes.luau.
+
+LAYOUT
+src/shared  CombatHelper, VfxHelper, PushHelper, AbilityCooldownHelper, ConstraintHelper
+src/server  init.server.luau wires services; CharacterService morphs
+src/client  init.client.luau, AbilityInput, GameplayHUD, CharacterSelectUI, DeathScreenClient
+src/archive dead code — do not revive unless asked
+
+CONVENTIONS
+- Abilities: server authority; client aim/input + VFX/UI.
+- Busy/locks: BUSY_ATTRIBUTE, lockHumanoidMotion / ConstraintHelper.
+- Flight: HexFlightClient (flat WASD vs camera) + HexFlightService. SW pitch max = 10.
+- Clone VFX from Assets; do NOT retune Invisible Woman ForcefieldArea particles.
+- SW high fall: keep landing anim; no AoE slam/chaos-impact damage.
+- Death overlay stays until character select shows.
+- IW Forcefield Area: caster cannot move while active.
+- Mind Link: cancel + hide MCU_MindLink GUI on death.
+
+EDIT STYLE
+Small targeted diffs. Don’t rewrite registries/HUD wholesale. Don’t commit unless asked.
+README.md is stale (old SW kit).

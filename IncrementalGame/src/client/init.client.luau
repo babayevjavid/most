@@ -1,0 +1,5 @@
+require(script:WaitForChild("CosmicHud")).Start()
+require(script:WaitForChild("CosmicSfx")).Start()
+require(script:WaitForChild("CosmicPowersHud")).Start()
+require(script:WaitForChild("CosmicPowerVfx")).Start()
+require(script:WaitForChild("CosmicAbilityBar")).Start()

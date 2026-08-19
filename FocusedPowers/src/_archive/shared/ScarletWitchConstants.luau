@@ -1,0 +1,32 @@
+--[[ Scarlet Witch ability tuning ]]
+return {
+	Teleportation = {
+		ABILITY_ID = "Teleportation",
+		CHARGE_MAX_SEC = 1.5,
+		SINGLE_COOLDOWN_SEC = 5,
+		AOE_COOLDOWN_SEC = 20,
+		SINGLE_RANGE = 35,
+		AOE_RADIUS = 18,
+	},
+	RealityWarp = { ABILITY_ID = "RealityWarp", COOLDOWN_SEC = 10, RADIUS = 14, PULL_DURATION = 0.35, DAMAGE = 20, PULL_SPEED = 55, PUSH_SPEED = 65, PUSH_UP = 22 },
+	HexBolt = {
+		ABILITY_ID = "HexBolt",
+		COOLDOWN_SEC = 11,
+		SPEED = 105,
+		DAMAGE = 12,
+		RANGE = 150,
+		LIFETIME = 2,
+		SIZE = Vector3.new(1, 1, 2.6),
+		PUSH_SPEED = 52,
+		PUSH_UP = 10,
+		CURVE_STRENGTH = 6,
+		AIM_INTERVAL = 0.05,
+		HEX_SLOW_DURATION = 2,
+		SHOT_COUNT = 3,
+		SPREAD_DEG = 12,
+		IMPACT_RADIUS = 6,
+	},
+	ProbabilityShield = { ABILITY_ID = "ProbabilityShield", COOLDOWN_SEC = 12, START_HP = 100, DECAY_PER_SEC = 5, DEFLECT_HIT_COST = 20 },
+	ChaosWave = { ABILITY_ID = "ChaosWave", COOLDOWN_SEC = 15, CHARGE_MAX_SEC = 2, MIN_RADIUS = 10, MAX_RADIUS = 26, WAVE_DURATION = 0.45, MIN_DAMAGE = 14, MAX_DAMAGE = 36, PUSH_SPEED = 50, PUSH_UP = 16 },
+	COLOR = Color3.fromRGB(200, 40, 90),
+}

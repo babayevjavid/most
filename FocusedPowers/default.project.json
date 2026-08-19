@@ -1,0 +1,77 @@
+{
+  "name": "FocusedPowers",
+  "tree": {
+    "$className": "DataModel",
+
+    "ReplicatedStorage": {
+      "Shared": {
+        "$path": "src/shared"
+      }
+    },
+
+    "ServerScriptService": {
+      "Server": {
+        "$path": "src/server"
+      }
+    },
+
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "Client": {
+          "$path": "src/client"
+        }
+      }
+    },
+
+    "Workspace": {
+      "$properties": {
+        "FilteringEnabled": true
+      },
+      "Baseplate": {
+        "$className": "Part",
+        "$properties": {
+          "Anchored": true,
+          "Color": [0.38823, 0.37254, 0.38823],
+          "Locked": true,
+          "Position": [0, -10, 0],
+          "Size": [512, 20, 512]
+        }
+      },
+      "TestCrate": {
+        "$className": "Part",
+        "$attributes": {
+          "Interactable": true
+        },
+        "Metal": {
+          "$className": "BoolValue",
+          "$properties": {
+            "Value": true
+          }
+        },
+        "$properties": {
+          "Anchored": false,
+          "Color": [0.8, 0.4, 0.6],
+          "Material": "SmoothPlastic",
+          "Position": [0, 3, -12],
+          "Size": [4, 4, 4]
+        }
+      }
+    },
+
+    "Lighting": {
+      "$properties": {
+        "Ambient": [0, 0, 0],
+        "Brightness": 2,
+        "GlobalShadows": true,
+        "Outlines": false,
+        "Technology": "Voxel"
+      }
+    },
+
+    "SoundService": {
+      "$properties": {
+        "RespectFilteringEnabled": true
+      }
+    }
+  }
+}

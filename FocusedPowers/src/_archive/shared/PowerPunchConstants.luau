@@ -1,0 +1,10 @@
+return {
+	ABILITY_ID = "PowerPunch",
+	COOLDOWN_SEC = 0.5,
+	LUNGE_DURATION = 0.2,
+	LUNGE_DISTANCE = 8,
+	BASE_DAMAGE = 24,
+	STEEL_MULT = 2,
+	PUSH_SPEED = 14,
+	PUSH_UP = 2,
+}

@@ -1,0 +1,33 @@
+--[[ Iceman ability tuning ]]
+return {
+	IceSlide = {
+		ABILITY_ID = "IceSlide",
+		COOLDOWN_SEC = 5,
+		MOVE_SPEED = 66,
+		FLOAT_BIAS = 6,
+		PAD_OFFSET = 3.5,
+		PAD_LIFETIME = 1.8,
+		PAD_LENGTH = 8,
+		PAD_WIDTH = 3.2,
+		PAD_THICKNESS = 0.55,
+		ROTATE_LERP = 0.24,
+	},
+	FrostBolt = {
+		ABILITY_ID = "FrostBolt",
+		COOLDOWN_SEC = 3,
+		SPEED = 105,
+		DAMAGE = 14,
+		RANGE = 140,
+		LIFETIME = 2,
+		SIZE = Vector3.new(0.6, 0.6, 1.8),
+		PUSH_SPEED = 35,
+		PUSH_UP = 6,
+		FREEZE_DURATION = 0.8,
+		CURVE_STRENGTH = 6,
+		AIM_INTERVAL = 0.05,
+	},
+	IceWall = { ABILITY_ID = "IceWall", COOLDOWN_SEC = 8, DISTANCE = 8, SIZE = Vector3.new(14, 12, 2.5), LIFETIME = 6, RISE_DURATION = 0.4 },
+	AbsoluteZero = { ABILITY_ID = "AbsoluteZero", COOLDOWN_SEC = 10, RANGE = 12, DAMAGE = 20, FREEZE_DURATION = 1.5 },
+	Blizzard = { ABILITY_ID = "Blizzard", COOLDOWN_SEC = 14, CHARGE_MAX_SEC = 2, MIN_RADIUS = 12, MAX_RADIUS = 28, WAVE_DURATION = 0.5, MIN_DAMAGE = 12, MAX_DAMAGE = 34, PUSH_SPEED = 40, PUSH_UP = 10 },
+	COLOR = Color3.fromRGB(120, 200, 255),
+}

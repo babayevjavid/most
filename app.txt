@@ -1,0 +1,62 @@
+-- HexBoltClient (LocalScript)
+local player = game.Players.LocalPlayer
+local mouse = player:GetMouse()
+local UIS = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- RemoteEvent for firing
+local fireEvent = ReplicatedStorage:WaitForChild("FireHexBolt")
+
+local charging = false
+local chargeStart = 0
+local maxCharge = 2 -- seconds
+local normalWalkSpeed = 16
+local chargeWalkSpeed = 4
+local normalJumpPower = 50
+local chargeJumpPower = 0
+local lastFireTime = 0
+local cooldown = 1 -- seconds
+
+UIS.InputBegan:Connect(function(input, gameProcessed)
+    if input.KeyCode == Enum.KeyCode.E and not gameProcessed and not charging then
+        charging = true
+        chargeStart = tick()
+        -- Restrict movement
+        if player.Character and player.Character:FindFirstChild("Humanoid") then
+            local hum = player.Character.Humanoid
+            hum.WalkSpeed = chargeWalkSpeed
+            hum.JumpPower = chargeJumpPower
+        end
+    end
+end)
+
+UIS.InputEnded:Connect(function(input, gameProcessed)
+    if input.KeyCode == Enum.KeyCode.E and charging then
+        charging = false
+        local now = tick()
+        if now - lastFireTime < cooldown then
+            -- Still in cooldown, ignore
+            if player.Character and player.Character:FindFirstChild("Humanoid") then
+                local hum = player.Character.Humanoid
+                hum.WalkSpeed = normalWalkSpeed
+                hum.JumpPower = normalJumpPower
+            end
+            return
+        end
+        lastFireTime = now
+        local chargeTime = math.min(now - chargeStart, maxCharge)
+        fireEvent:FireServer(mouse.Hit.Position, chargeTime)
+        -- Restore movement
+        if player.Character and player.Character:FindFirstChild("Humanoid") then
+            local hum = player.Character.Humanoid
+            hum.WalkSpeed = normalWalkSpeed
+            hum.JumpPower = normalJumpPower
+        end
+    end
+end)
+
+-- Optional: If player dies, restore movement
+player.CharacterAdded:Connect(function(char)
+    char:WaitForChild("Humanoid").WalkSpeed = normalWalkSpeed
+    char:WaitForChild("Humanoid").JumpPower = normalJumpPower
+end)

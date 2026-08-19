@@ -1,0 +1,8 @@
+return {
+	ABILITY_ID = "HolyStrike",
+	COOLDOWN_SEC = 5,
+	DASH_RANGE = 20,
+	DASH_DURATION = 0.18,
+	DAMAGE = 26,
+	HEAL_ON_HIT = 5,
+}

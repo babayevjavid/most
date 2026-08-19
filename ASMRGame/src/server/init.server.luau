@@ -1,0 +1,10 @@
+local GameService = require(script:WaitForChild("GameService"))
+local WorldService = require(script:WaitForChild("WorldService"))
+local LightingService = require(script:WaitForChild("LightingService"))
+local DecorService = require(script:WaitForChild("DecorService"))
+
+GameService.Init()
+LightingService.Apply()
+LightingService.StartDayCycle()
+WorldService.Init()
+DecorService.Init()

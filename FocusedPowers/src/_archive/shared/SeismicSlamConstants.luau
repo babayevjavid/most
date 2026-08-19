@@ -1,0 +1,11 @@
+return {
+	ABILITY_ID = "GroundSlam",
+	COOLDOWN_SEC = 6,
+	HOP_HEIGHT = 9,
+	SLAM_DURATION = 0.35,
+	MIN_RADIUS = 12,
+	MAX_RADIUS = 22,
+	BASE_DAMAGE = 20,
+	STEEL_MULT = 1.8,
+	PUSH_UP = 44,
+}

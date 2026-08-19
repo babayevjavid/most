@@ -1,0 +1,440 @@
+<roblox version="4">
+  <Item class="Lighting" referent="0">
+    <Properties>
+      <string name="Name">Lighting</string>
+      <Color3 name="Ambient">
+        <R>0</R>
+        <G>0</G>
+        <B>0</B>
+      </Color3>
+      <float name="Brightness">2</float>
+      <bool name="GlobalShadows">true</bool>
+      <bool name="Outlines">false</bool>
+      <token name="Technology">1</token>
+    </Properties>
+  </Item>
+  <Item class="ReplicatedStorage" referent="1">
+    <Properties>
+      <string name="Name">ReplicatedStorage</string>
+    </Properties>
+    <Item class="Folder" referent="2">
+      <Properties>
+        <string name="Name">RagdollRemotes</string>
+      </Properties>
+      <Item class="RemoteEvent" referent="3">
+        <Properties>
+          <string name="Name">RagdollToggle</string>
+        </Properties>
+      </Item>
+    </Item>
+    <Item class="Folder" referent="4">
+      <Properties>
+        <string name="Name">Shared</string>
+      </Properties>
+      <Item class="ModuleScript" referent="5">
+        <Properties>
+          <string name="Name">RagdollConfig</string>
+          <string name="Source"><![CDATA[return {
+	CooldownSeconds = 1,
+	RemoteName = "RagdollToggle",
+}
+]]></string>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+  <Item class="ServerScriptService" referent="6">
+    <Properties>
+      <string name="Name">ServerScriptService</string>
+    </Properties>
+    <Item class="Script" referent="7">
+      <Properties>
+        <string name="Name">Server</string>
+        <token name="RunContext">0</token>
+        <string name="Source"><![CDATA[local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local shared = ReplicatedStorage:WaitForChild("Shared", 30)
+if not shared then
+	error("[Ragdoll] ReplicatedStorage.Shared missing — sync Rojo (default.project.json → src/shared).")
+end
+
+local ragdollConfigModule = shared:WaitForChild("RagdollConfig", 10)
+local ok, RagdollConfig = pcall(require, ragdollConfigModule)
+if not ok then
+	error("[Ragdoll] Failed to require RagdollConfig: " .. tostring(RagdollConfig))
+end
+
+local function ensureToggleRemote(): RemoteEvent
+	local folder = ReplicatedStorage:FindFirstChild("RagdollRemotes")
+	if not folder then
+		folder = Instance.new("Folder")
+		folder.Name = "RagdollRemotes"
+		folder.Parent = ReplicatedStorage
+	end
+	local ev = folder:FindFirstChild(RagdollConfig.RemoteName)
+	if not ev then
+		ev = Instance.new("RemoteEvent")
+		ev.Name = RagdollConfig.RemoteName
+		ev.Parent = folder
+	elseif not ev:IsA("RemoteEvent") then
+		error("[Ragdoll] " .. RagdollConfig.RemoteName .. " must be a RemoteEvent")
+	end
+	return ev :: RemoteEvent
+end
+
+local toggleRemote = ensureToggleRemote()
+
+type RagdollBundle = {
+	constraints: { Instance },
+	attachments: { Attachment },
+	collision: { [BasePart]: boolean },
+	animateScript: LocalScript?,
+}
+
+local active: { [Model]: RagdollBundle } = {}
+local lastToggle: { [Player]: number } = {}
+
+local function bundleFor(character: Model): RagdollBundle?
+	return active[character]
+end
+
+local function destroyBundle(character: Model)
+	local b = active[character]
+	if not b then
+		return
+	end
+	for _, inst in b.constraints do
+		inst:Destroy()
+	end
+	for _, att in b.attachments do
+		att:Destroy()
+	end
+	active[character] = nil
+end
+
+local function configureNeckSocket(socket: BallSocketConstraint)
+	socket.LimitsEnabled = true
+	socket.UpperAngle = 32
+	socket.TwistLimitsEnabled = true
+	socket.TwistLowerAngle = -35
+	socket.TwistUpperAngle = 35
+	socket.MaxFrictionTorque = 50
+end
+
+local function configureDefaultSocket(socket: BallSocketConstraint)
+	socket.LimitsEnabled = true
+	socket.UpperAngle = 75
+	socket.TwistLimitsEnabled = true
+	socket.TwistLowerAngle = -45
+	socket.TwistUpperAngle = 45
+end
+
+local function enableRagdoll(character: Model)
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not humanoid or humanoid.Health <= 0 then
+		return
+	end
+
+	destroyBundle(character)
+
+	local bundle: RagdollBundle = {
+		constraints = {},
+		attachments = {},
+		collision = {},
+		animateScript = nil,
+	}
+
+	local animate = character:FindFirstChild("Animate")
+	if animate and animate:IsA("LocalScript") then
+		animate.Disabled = true
+		bundle.animateScript = animate
+	end
+
+	for _, d in character:GetDescendants() do
+		if d:IsA("BasePart") then
+			bundle.collision[d] = d.CanCollide
+			d.CanCollide = true
+		end
+	end
+
+	local animator = humanoid:FindFirstChildOfClass("Animator")
+	if animator then
+		for _, track in animator:GetPlayingAnimationTracks() do
+			track:Stop(0.05)
+		end
+	end
+
+	for _, m in character:GetDescendants() do
+		if m:IsA("Motor6D") then
+			local p0, p1 = m.Part0, m.Part1
+			if p0 and p1 then
+				local att0 = Instance.new("Attachment")
+				att0.Name = "RagdollSocket0"
+				att0.CFrame = m.C0
+				att0.Parent = p0
+
+				local att1 = Instance.new("Attachment")
+				att1.Name = "RagdollSocket1"
+				att1.CFrame = m.C1
+				att1.Parent = p1
+
+				local socket = Instance.new("BallSocketConstraint")
+				socket.Attachment0 = att0
+				socket.Attachment1 = att1
+				socket.Enabled = true
+				socket.Parent = m.Parent
+
+				if m.Name == "Neck" then
+					configureNeckSocket(socket)
+				else
+					configureDefaultSocket(socket)
+				end
+
+				table.insert(bundle.constraints, socket)
+				table.insert(bundle.attachments, att0)
+				table.insert(bundle.attachments, att1)
+
+				m.Enabled = false
+			end
+		end
+	end
+
+	humanoid:SetStateEnabled(Enum.HumanoidStateType.GettingUp, false)
+	humanoid.AutoRotate = false
+	humanoid.PlatformStand = true
+	humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+
+	local root = character:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if root then
+		root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, math.min(root.AssemblyLinearVelocity.Y, 0), root.AssemblyLinearVelocity.Z)
+	end
+
+	active[character] = bundle
+	character:SetAttribute("RagdollActive", true)
+end
+
+local function disableRagdoll(character: Model)
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not humanoid then
+		local deadBundle = bundleFor(character)
+		if deadBundle and deadBundle.animateScript and deadBundle.animateScript.Parent then
+			deadBundle.animateScript.Disabled = false
+		end
+		destroyBundle(character)
+		character:SetAttribute("RagdollActive", nil)
+		return
+	end
+
+	local b = bundleFor(character)
+
+	for _, m in character:GetDescendants() do
+		if m:IsA("Motor6D") then
+			m.Enabled = true
+		end
+	end
+
+	if b and b.animateScript and b.animateScript.Parent then
+		b.animateScript.Disabled = false
+	end
+
+	if b then
+		for part, wasCollide in b.collision do
+			if part.Parent then
+				part.CanCollide = wasCollide
+			end
+		end
+	end
+
+	destroyBundle(character)
+
+	humanoid.PlatformStand = false
+	humanoid.AutoRotate = true
+	humanoid:SetStateEnabled(Enum.HumanoidStateType.GettingUp, true)
+	humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+
+	character:SetAttribute("RagdollActive", nil)
+end
+
+local function toggleFor(player: Player)
+	local character = player.Character
+	if not character then
+		warn("[Ragdoll] toggleFor: no character for player", player.Name)
+		return
+	end
+
+	local now = os.clock()
+	local last = lastToggle[player]
+	if last and (now - last) < RagdollConfig.CooldownSeconds then
+		print("[Ragdoll] toggle blocked by cooldown for", player.Name)
+		return
+	end
+	lastToggle[player] = now
+
+	if character:GetAttribute("RagdollActive") then
+		print("[Ragdoll] Disabling ragdoll for", player.Name)
+		disableRagdoll(character)
+	else
+		print("[Ragdoll] Enabling ragdoll for", player.Name)
+		enableRagdoll(character)
+	end
+end
+
+toggleRemote.OnServerEvent:Connect(function(player: Player)
+	print("[Ragdoll] Remote received from", player.Name)
+	toggleFor(player)
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+	lastToggle[player] = nil
+end)
+
+local function onCharacterRemoving(character: Model)
+	local b = bundleFor(character)
+	if b and b.animateScript and b.animateScript.Parent then
+		b.animateScript.Disabled = false
+	end
+	destroyBundle(character)
+	character:SetAttribute("RagdollActive", nil)
+end
+
+local function hookPlayer(player: Player)
+	player.CharacterRemoving:Connect(onCharacterRemoving)
+end
+
+for _, p in Players:GetPlayers() do
+	hookPlayer(p)
+end
+Players.PlayerAdded:Connect(hookPlayer)
+
+print("[Ragdoll] Server ready — press R (see Client script in StarterPlayerScripts > Client)")
+]]></string>
+      </Properties>
+    </Item>
+  </Item>
+  <Item class="SoundService" referent="8">
+    <Properties>
+      <string name="Name">SoundService</string>
+      <bool name="RespectFilteringEnabled">true</bool>
+    </Properties>
+  </Item>
+  <Item class="StarterPlayer" referent="9">
+    <Properties>
+      <string name="Name">StarterPlayer</string>
+    </Properties>
+    <Item class="StarterPlayerScripts" referent="10">
+      <Properties>
+        <string name="Name">StarterPlayerScripts</string>
+      </Properties>
+      <Item class="LocalScript" referent="11">
+        <Properties>
+          <string name="Name">Client</string>
+          <string name="Source"><![CDATA[local ContextActionService = game:GetService("ContextActionService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+
+local shared = ReplicatedStorage:WaitForChild("Shared", 30)
+if not shared then
+	warn("[Ragdoll] ReplicatedStorage.Shared missing — sync Rojo.")
+	return
+end
+
+local ragdollConfigModule = shared:WaitForChild("RagdollConfig", 10)
+if not ragdollConfigModule then
+	warn("[Ragdoll] RagdollConfig missing in ReplicatedStorage.Shared — add src/shared/RagdollConfig.luau and sync.")
+	return
+end
+
+local ok, RagdollConfig = pcall(require, ragdollConfigModule)
+if not ok or type(RagdollConfig) ~= "table" then
+	warn("[Ragdoll] Failed to require RagdollConfig.")
+	return
+end
+
+local remoteFolder = ReplicatedStorage:WaitForChild("RagdollRemotes", 60)
+if not remoteFolder then
+	warn("[Ragdoll] RagdollRemotes missing — server should create it; is the server running?")
+	return
+end
+
+local toggleRemote = remoteFolder:WaitForChild(RagdollConfig.RemoteName, 10)
+if not toggleRemote or not toggleRemote:IsA("RemoteEvent") then
+	warn("[Ragdoll] RemoteEvent missing: " .. tostring(RagdollConfig.RemoteName))
+	return
+end
+
+local lastLocalFire = 0.0
+
+local function tryFire()
+	local now = os.clock()
+	if now - lastLocalFire < RagdollConfig.CooldownSeconds then
+		return
+	end
+	lastLocalFire = now
+	(toggleRemote :: RemoteEvent):FireServer()
+end
+
+local function shouldBlockR(): boolean
+	return UserInputService:GetFocusedTextBox() ~= nil
+end
+
+UserInputService.InputBegan:Connect(function(input, _gameProcessed)
+	if input.KeyCode ~= Enum.KeyCode.R then
+		return
+	end
+	if shouldBlockR() then
+		return
+	end
+	tryFire()
+end)
+
+ContextActionService:BindActionAtPriority(
+	"Ragdoll_ToggleR",
+	function(_, state)
+		if state ~= Enum.UserInputState.Begin then
+			return Enum.ContextActionResult.Pass
+		end
+		if shouldBlockR() then
+			return Enum.ContextActionResult.Pass
+		end
+		tryFire()
+		return Enum.ContextActionResult.Sink
+	end,
+	false,
+	50000,
+	Enum.KeyCode.R
+)
+
+print("[Ragdoll] Client loaded — press R to toggle (1s cooldown)")
+]]></string>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+  <Item class="Workspace" referent="12">
+    <Properties>
+      <string name="Name">Workspace</string>
+      <bool name="FilteringEnabled">true</bool>
+      <bool name="NeedsPivotMigration">false</bool>
+    </Properties>
+    <Item class="Part" referent="13">
+      <Properties>
+        <string name="Name">Baseplate</string>
+        <bool name="Anchored">true</bool>
+        <Color3uint8 name="Color3uint8">6512483</Color3uint8>
+        <bool name="Locked">true</bool>
+        <Vector3 name="Position">
+          <X>0</X>
+          <Y>-10</Y>
+          <Z>0</Z>
+        </Vector3>
+        <Vector3 name="size">
+          <X>512</X>
+          <Y>20</Y>
+          <Z>512</Z>
+        </Vector3>
+      </Properties>
+    </Item>
+  </Item>
+</roblox>

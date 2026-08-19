@@ -1,0 +1,3505 @@
+<roblox version="4">
+  <Item class="Lighting" referent="0">
+    <Properties>
+      <string name="Name">Lighting</string>
+      <Color3 name="Ambient">
+        <R>0</R>
+        <G>0</G>
+        <B>0</B>
+      </Color3>
+      <float name="Brightness">2</float>
+      <bool name="GlobalShadows">true</bool>
+      <bool name="Outlines">false</bool>
+      <token name="Technology">1</token>
+    </Properties>
+  </Item>
+  <Item class="ReplicatedStorage" referent="1">
+    <Properties>
+      <string name="Name">ReplicatedStorage</string>
+    </Properties>
+    <Item class="Folder" referent="2">
+      <Properties>
+        <string name="Name">Shared</string>
+      </Properties>
+      <Item class="ModuleScript" referent="3">
+        <Properties>
+          <string name="Name">CharacterConfig</string>
+          <string name="Source"><![CDATA[return {
+	Choices = { "Piper", "Prue", "Phoebe", "Paige" },
+	DefaultEnergy = 100,
+	SelectionRemoteName = "CharacterSelected",
+	RemotesFolderName = "CharacterRemotes",
+	PowerCastRemoteName = "PowerCast",
+	PowersByCharacter = {
+		Prue = {
+			{ Id = "telekinesis", Name = "Telekinesis", Energy = 18, Cooldown = 3, Targeted = true, Icon = "TK" },
+			{ Id = "telekinetic_deviation", Name = "Telekinetic Deviation", Energy = 22, Cooldown = 6, Targeted = false, Icon = "TD" },
+			{ Id = "astral_projection", Name = "Astral Projection", Energy = 30, Cooldown = 12, Targeted = false, Icon = "AP" },
+		},
+		Paige = {
+			{ Id = "orbing", Name = "Orbing", Energy = 20, Cooldown = 4, Targeted = true, Icon = "OR" },
+			{ Id = "telekinetic_orbing", Name = "Telekinetic Orbing", Energy = 25, Cooldown = 6, Targeted = true, Icon = "TO" },
+			{ Id = "healing", Name = "Healing", Energy = 25, Cooldown = 8, Targeted = false, Icon = "HE" },
+		},
+		Piper = {
+			{ Id = "molecular_freeze", Name = "Molecular Freeze", Energy = 28, Cooldown = 10, Targeted = false, Icon = "FR" },
+			{ Id = "molecular_combustion", Name = "Molecular Combustion", Energy = 26, Cooldown = 5, Targeted = true, Icon = "CB" },
+		},
+		Phoebe = {
+			{ Id = "premonition", Name = "Premonition", Energy = 18, Cooldown = 10, Targeted = false, Icon = "PR" },
+			{ Id = "levitation", Name = "Levitation", Energy = 15, Cooldown = 5, Targeted = false, Icon = "LV" },
+		},
+	},
+}
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="4">
+        <Properties>
+          <string name="Name">Hello</string>
+          <string name="Source"><![CDATA[return function()
+	print("Hello, world!")
+end
+]]></string>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+  <Item class="ServerScriptService" referent="5">
+    <Properties>
+      <string name="Name">ServerScriptService</string>
+    </Properties>
+    <Item class="Script" referent="6">
+      <Properties>
+        <string name="Name">Server</string>
+        <token name="RunContext">0</token>
+        <string name="Source"><![CDATA[print("Hello world, from server!")
+]]></string>
+      </Properties>
+      <Item class="Script" referent="7">
+        <Properties>
+          <string name="Name">CharacterPowers</string>
+          <token name="RunContext">0</token>
+          <string name="Source"><![CDATA[local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Debris = game:GetService("Debris")
+local TweenService = game:GetService("TweenService")
+
+local shared = ReplicatedStorage:WaitForChild("Shared", 30)
+if not shared then
+	error("[Powers] Shared folder missing.")
+end
+
+local configModule = shared:WaitForChild("CharacterConfig", 10)
+local ok, CharacterConfig = pcall(require, configModule)
+if not ok or type(CharacterConfig) ~= "table" then
+	error("[Powers] Failed to require CharacterConfig.")
+end
+
+local remotesFolder = ReplicatedStorage:FindFirstChild(CharacterConfig.RemotesFolderName)
+if not remotesFolder then
+	remotesFolder = Instance.new("Folder")
+	remotesFolder.Name = CharacterConfig.RemotesFolderName
+	remotesFolder.Parent = ReplicatedStorage
+end
+
+local powerCastRemote = remotesFolder:FindFirstChild(CharacterConfig.PowerCastRemoteName)
+if not powerCastRemote then
+	powerCastRemote = Instance.new("RemoteEvent")
+	powerCastRemote.Name = CharacterConfig.PowerCastRemoteName
+	powerCastRemote.Parent = remotesFolder
+elseif not powerCastRemote:IsA("RemoteEvent") then
+	error("[Powers] PowerCast must be RemoteEvent.")
+end
+local powerCastRemoteEvent = powerCastRemote :: RemoteEvent
+
+local powersById: { [string]: any } = {}
+for characterName, list in CharacterConfig.PowersByCharacter do
+	for _, powerData in list do
+		powerData.Character = characterName
+		powersById[powerData.Id] = powerData
+	end
+end
+
+local cooldowns: { [Player]: { [string]: number } } = {}
+local lastEnergySpendAt: { [Player]: number } = {}
+local energyRegenActive: { [Player]: boolean } = {}
+local activeContinuous: { [Player]: { [string]: boolean } } = {}
+local freezeStates: {
+	[Player]: {
+		frozenParts: { BasePart },
+		frozenHumanoids: { [Humanoid]: { walkSpeed: number, jumpPower: number, autoRotate: boolean } },
+	},
+} = {}
+local levitationStates: {
+	[Player]: {
+		humanoid: Humanoid,
+		jumpPower: number,
+		velocity: Vector3,
+	},
+} = {}
+local premonitionStates: {
+	[Player]: {
+		target: Humanoid?,
+	},
+} = {}
+local healingStates: {
+	[Player]: {
+		target: Humanoid,
+		walkSpeed: number,
+		jumpPower: number,
+		autoRotate: boolean,
+	},
+} = {}
+local astralStates: {
+	[Player]: {
+		clone: Model,
+	},
+} = {}
+local telekinesisStates: {
+	[Player]: {
+		part: BasePart,
+		anchor: Part,
+		a0: Attachment,
+		a1: Attachment,
+		align: AlignPosition,
+		track: AnimationTrack?,
+	},
+} = {}
+local interactableStartCFrames: { [Instance]: CFrame } = {}
+
+local function getRoot(character: Model): BasePart?
+	local root = character:FindFirstChild("HumanoidRootPart")
+	if root and root:IsA("BasePart") then
+		return root
+	end
+	return nil
+end
+
+local function getHumanoid(character: Model): Humanoid?
+	return character:FindFirstChildOfClass("Humanoid")
+end
+
+local function triggerTimedRagdoll(humanoid: Humanoid, duration: number)
+	local character = humanoid.Parent
+	if not character or not character:IsA("Model") then
+		return
+	end
+	character:SetAttribute("Ragdolled", true)
+	task.delay(duration, function()
+		if not humanoid.Parent or humanoid.Health <= 0 then
+			return
+		end
+		if character:GetAttribute("Ragdolled") == true then
+			character:SetAttribute("Ragdolled", false)
+		end
+	end)
+end
+
+local function playAnimation(humanoid: Humanoid, animationId: string, looped: boolean): AnimationTrack?
+	local animator = humanoid:FindFirstChildOfClass("Animator")
+	if not animator then
+		animator = Instance.new("Animator")
+		animator.Parent = humanoid
+	end
+	local animation = Instance.new("Animation")
+	animation.AnimationId = "rbxassetid://" .. animationId
+	local ok, track = pcall(function()
+		return (animator :: Animator):LoadAnimation(animation)
+	end)
+	animation:Destroy()
+	if not ok or not track then
+		return nil
+	end
+	local animTrack = track :: AnimationTrack
+	animTrack.Looped = looped
+	animTrack:Play(0.12)
+	return animTrack
+end
+
+local function findInteractableAncestor(instance: Instance?): Instance?
+	local current = instance
+	while current and current ~= workspace do
+		local nameLower = string.lower(current.Name)
+		if string.find(nameLower, "interactable") or current:FindFirstChild("Interactable", true) then
+			return current
+		end
+		current = current.Parent
+	end
+	return nil
+end
+
+local function getInteractableRoots(): { Instance }
+	local roots: { Instance } = {}
+	local seen: { [Instance]: boolean } = {}
+	for _, inst in workspace:GetDescendants() do
+		local interactable = findInteractableAncestor(inst)
+		if interactable and not seen[interactable] then
+			seen[interactable] = true
+			table.insert(roots, interactable)
+		end
+	end
+	return roots
+end
+
+local function snapshotInteractables()
+	table.clear(interactableStartCFrames)
+	for _, root in getInteractableRoots() do
+		if root:IsA("BasePart") then
+			interactableStartCFrames[root] = root.CFrame
+		elseif root:IsA("Model") then
+			interactableStartCFrames[root] = root:GetPivot()
+		end
+	end
+end
+
+local function returnInteractablesToStart()
+	for root, startCf in interactableStartCFrames do
+		if not root.Parent then
+			continue
+		end
+		if root:IsA("BasePart") then
+			root.CFrame = startCf
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.AssemblyAngularVelocity = Vector3.zero
+		elseif root:IsA("Model") then
+			root:PivotTo(startCf)
+			for _, d in root:GetDescendants() do
+				if d:IsA("BasePart") then
+					d.AssemblyLinearVelocity = Vector3.zero
+					d.AssemblyAngularVelocity = Vector3.zero
+				end
+			end
+		end
+	end
+end
+
+local function findHumanoidAncestor(instance: Instance?): Model?
+	local current = instance
+	while current and current ~= workspace do
+		if current:IsA("Model") and current:FindFirstChildOfClass("Humanoid") then
+			return current
+		end
+		current = current.Parent
+	end
+	return nil
+end
+
+local function getTargetPart(instance: Instance?): BasePart?
+	local humanoidModel = findHumanoidAncestor(instance)
+	if humanoidModel then
+		local hrp = humanoidModel:FindFirstChild("HumanoidRootPart")
+		if hrp and hrp:IsA("BasePart") then
+			return hrp
+		end
+	end
+	local interactable = findInteractableAncestor(instance)
+	if not interactable then
+		return nil
+	end
+	if interactable:IsA("BasePart") then
+		return interactable
+	end
+	if interactable:IsA("Model") then
+		if interactable.PrimaryPart then
+			return interactable.PrimaryPart
+		end
+		local anyPart = interactable:FindFirstChildWhichIsA("BasePart", true)
+		if anyPart then
+			return anyPart
+		end
+	end
+	return nil
+end
+
+local function getPartFromTarget(target: Instance?): BasePart?
+	if not target then
+		return nil
+	end
+	if target:IsA("BasePart") then
+		return target
+	end
+	if target:IsA("Model") then
+		if target.PrimaryPart then
+			return target.PrimaryPart
+		end
+		local anyPart = target:FindFirstChildWhichIsA("BasePart", true)
+		if anyPart then
+			return anyPart
+		end
+	end
+	return nil
+end
+
+local function setEnergy(player: Player, amount: number)
+	local clamped = math.clamp(amount, 0, CharacterConfig.DefaultEnergy)
+	player:SetAttribute("Energy", clamped)
+	local character = player.Character
+	if character then
+		character:SetAttribute("Energy", clamped)
+	end
+end
+
+local startEnergyRegen: (player: Player) -> ()
+
+local function spendEnergyAmount(player: Player, amount: number): boolean
+	if amount <= 0 then
+		return true
+	end
+	local energy = player:GetAttribute("Energy")
+	local current = if type(energy) == "number" then energy else CharacterConfig.DefaultEnergy
+	if current < amount then
+		return false
+	end
+	setEnergy(player, current - amount)
+	lastEnergySpendAt[player] = os.clock()
+	startEnergyRegen(player)
+	return true
+end
+
+function startEnergyRegen(player: Player)
+	if energyRegenActive[player] then
+		return
+	end
+	energyRegenActive[player] = true
+	task.spawn(function()
+		while player.Parent do
+			local lastSpend = lastEnergySpendAt[player]
+			local now = os.clock()
+			if lastSpend and (now - lastSpend) >= 2 then
+				local energy = player:GetAttribute("Energy")
+				local current = if type(energy) == "number" then energy else CharacterConfig.DefaultEnergy
+				if current < CharacterConfig.DefaultEnergy then
+					setEnergy(player, current + 4)
+				end
+			end
+			task.wait(0.2)
+		end
+		energyRegenActive[player] = nil
+	end)
+end
+
+local function spendEnergy(player: Player, cost: number): boolean
+	local energy = player:GetAttribute("Energy")
+	local current = if type(energy) == "number" then energy else CharacterConfig.DefaultEnergy
+	if current < cost then
+		return false
+	end
+	setEnergy(player, current - cost)
+	lastEnergySpendAt[player] = os.clock()
+	startEnergyRegen(player)
+	return true
+end
+
+local function setAbilityActive(player: Player, abilityId: string, isActive: boolean)
+	local byPlayer = activeContinuous[player]
+	if not byPlayer then
+		byPlayer = {}
+		activeContinuous[player] = byPlayer
+	end
+	byPlayer[abilityId] = isActive
+	powerCastRemoteEvent:FireClient(player, "ability_state", abilityId, isActive)
+end
+
+local function isAbilityActive(player: Player, abilityId: string): boolean
+	local byPlayer = activeContinuous[player]
+	return byPlayer ~= nil and byPlayer[abilityId] == true
+end
+
+local continuousDrainPerSecond: { [string]: number } = {
+	telekinesis = 10,
+	astral_projection = 9,
+	molecular_freeze = 12,
+	premonition = 8,
+	levitation = 10,
+	healing = 9,
+}
+
+local function startContinuousDrain(player: Player, abilityId: string, onOutOfEnergy: (() -> ())?)
+	task.spawn(function()
+		while player.Parent and isAbilityActive(player, abilityId) do
+			local drainPerSecond = continuousDrainPerSecond[abilityId] or 0
+			local ok = spendEnergyAmount(player, drainPerSecond * 0.25)
+			if not ok then
+				setAbilityActive(player, abilityId, false)
+				if onOutOfEnergy then
+					onOutOfEnergy()
+				end
+				break
+			end
+			task.wait(0.25)
+		end
+	end)
+end
+
+local function canCast(player: Player, powerId: string): (boolean, any?)
+	local power = powersById[powerId]
+	if not power then
+		return false, nil
+	end
+
+	local chosen = player:GetAttribute("ChosenCharacter")
+	if type(chosen) ~= "string" or chosen ~= power.Character then
+		return false, nil
+	end
+
+	local character = player.Character
+	if not character then
+		return false, nil
+	end
+	local humanoid = getHumanoid(character)
+	if not humanoid or humanoid.Health <= 0 then
+		return false, nil
+	end
+
+	local byPlayer = cooldowns[player]
+	if not byPlayer then
+		byPlayer = {}
+		cooldowns[player] = byPlayer
+	end
+	local last = byPlayer[powerId]
+	local now = os.clock()
+	if last and (now - last) < power.Cooldown then
+		return false, nil
+	end
+
+	if not spendEnergy(player, power.Energy) then
+		return false, nil
+	end
+
+	return true, power
+end
+
+local function beginCooldown(player: Player, powerId: string)
+	local power = powersById[powerId]
+	if not power then
+		return
+	end
+	local byPlayer = cooldowns[player]
+	if not byPlayer then
+		byPlayer = {}
+		cooldowns[player] = byPlayer
+	end
+	byPlayer[powerId] = os.clock()
+	powerCastRemoteEvent:FireClient(player, "ability_cooldown", powerId, power.Cooldown)
+end
+
+local function movePartSmooth(part: BasePart, destination: Vector3, duration: number, holdSeconds: number?)
+	local anchor = Instance.new("Part")
+	anchor.Name = "PowerAnchor"
+	anchor.Anchored = true
+	anchor.CanCollide = false
+	anchor.Transparency = 1
+	anchor.Size = Vector3.new(0.2, 0.2, 0.2)
+	anchor.CFrame = CFrame.new(destination)
+	anchor.Parent = workspace
+
+	local a0 = Instance.new("Attachment")
+	a0.Parent = part
+
+	local a1 = Instance.new("Attachment")
+	a1.Parent = anchor
+
+	local align = Instance.new("AlignPosition")
+	align.Attachment0 = a0
+	align.Attachment1 = a1
+	align.MaxForce = 100000
+	align.MaxVelocity = 200
+	align.Responsiveness = 35
+	align.RigidityEnabled = false
+	align.Parent = part
+
+	task.delay(duration + (holdSeconds or 0), function()
+		align:Destroy()
+		a0:Destroy()
+		a1:Destroy()
+		anchor:Destroy()
+	end)
+end
+
+local function clearTelekinesis(player: Player)
+	local state = telekinesisStates[player]
+	if not state then
+		return
+	end
+	if state.track then
+		state.track:Stop(0.12)
+		state.track:Destroy()
+	end
+	if state.align.Parent then
+		state.align:Destroy()
+	end
+	if state.a0.Parent then
+		state.a0:Destroy()
+	end
+	if state.a1.Parent then
+		state.a1:Destroy()
+	end
+	if state.anchor.Parent then
+		state.anchor:Destroy()
+	end
+	telekinesisStates[player] = nil
+	setAbilityActive(player, "telekinesis", false)
+	beginCooldown(player, "telekinesis")
+end
+
+local function updateTelekinesisTarget(player: Player, hitPosition: Vector3?)
+	local state = telekinesisStates[player]
+	local character = player.Character
+	if not state or not character then
+		return
+	end
+	local root = getRoot(character)
+	if not root then
+		return
+	end
+	local cursorPos = if hitPosition then hitPosition else (root.Position + root.CFrame.LookVector * 20)
+	local toCursor = cursorPos - root.Position
+	if toCursor.Magnitude < 0.01 then
+		toCursor = root.CFrame.LookVector
+	end
+	local distance = math.min(toCursor.Magnitude, 20)
+	local destination = root.Position + toCursor.Unit * distance + Vector3.new(0, 3, 0)
+	state.anchor.CFrame = CFrame.new(destination)
+end
+
+local function applyTelekinesis(player: Player, target: Instance?, hitPosition: Vector3?)
+	local character = player.Character
+	if not character then
+		return
+	end
+	local root = getRoot(character)
+	if not root then
+		return
+	end
+	local part = getTargetPart(target)
+	if not part then
+		return
+	end
+	if part:IsDescendantOf(character) then
+		return
+	end
+	local humModel = findHumanoidAncestor(part)
+	if humModel and humModel ~= character then
+		local hum = humModel:FindFirstChildOfClass("Humanoid")
+		if hum then
+			triggerTimedRagdoll(hum, 3)
+		end
+	end
+	clearTelekinesis(player)
+
+	local anchor = Instance.new("Part")
+	anchor.Name = "TelekinesisAnchor"
+	anchor.Anchored = true
+	anchor.CanCollide = false
+	anchor.Transparency = 1
+	anchor.Size = Vector3.new(0.2, 0.2, 0.2)
+	anchor.Parent = workspace
+
+	local a0 = Instance.new("Attachment")
+	a0.Parent = part
+	local a1 = Instance.new("Attachment")
+	a1.Parent = anchor
+
+	local align = Instance.new("AlignPosition")
+	align.Attachment0 = a0
+	align.Attachment1 = a1
+	align.MaxForce = 100000
+	align.MaxVelocity = 160
+	align.Responsiveness = 30
+	align.RigidityEnabled = false
+	align.Parent = part
+
+	local humanoid = getHumanoid(character)
+	local teleTrack: AnimationTrack? = nil
+	if humanoid then
+		teleTrack = playAnimation(humanoid, "78788244679103", true)
+	end
+
+	telekinesisStates[player] = {
+		part = part,
+		anchor = anchor,
+		a0 = a0,
+		a1 = a1,
+		align = align,
+		track = teleTrack,
+	}
+	setAbilityActive(player, "telekinesis", true)
+	updateTelekinesisTarget(player, hitPosition)
+end
+
+local function pushTelekinesisTarget(player: Player, hitPosition: Vector3?)
+	local state = telekinesisStates[player]
+	local character = player.Character
+	if not state or not character then
+		return
+	end
+	local root = getRoot(character)
+	if not root or not state.part.Parent then
+		return
+	end
+	local dir = state.part.Position - root.Position
+	if dir.Magnitude < 0.01 then
+		dir = root.CFrame.LookVector
+	end
+	state.part.AssemblyLinearVelocity = dir.Unit * 135
+	local humModel = findHumanoidAncestor(state.part)
+	if humModel and humModel ~= character then
+		local hum = humModel:FindFirstChildOfClass("Humanoid")
+		if hum then
+			triggerTimedRagdoll(hum, 2.5)
+		end
+	end
+end
+
+local function applyTelekineticDeviation(player: Player, target: Instance?)
+	local character = player.Character
+	if not character then
+		return
+	end
+	local root = getRoot(character)
+	local humanoid = getHumanoid(character)
+	if not root then
+		return
+	end
+	if humanoid then
+		playAnimation(humanoid, "108289377753865", false)
+	end
+	local targetPart = getTargetPart(target)
+	if not targetPart then
+		return
+	end
+	if targetPart:IsDescendantOf(character) then
+		return
+	end
+	local humModel = findHumanoidAncestor(targetPart)
+	if humModel and humModel ~= character then
+		local hum = humModel:FindFirstChildOfClass("Humanoid")
+		if hum then
+			triggerTimedRagdoll(hum, 2.5)
+		end
+	end
+	targetPart.AssemblyLinearVelocity = root.CFrame.LookVector * 130
+end
+
+local function cleanupAstralFor(player: Player)
+	local state = astralStates[player]
+	if not state then
+		return
+	end
+	if state.clone and state.clone.Parent then
+		state.clone:Destroy()
+	end
+	astralStates[player] = nil
+end
+
+local function applyAstralProjection(player: Player, hitPosition: Vector3?)
+	local character = player.Character
+	if not character then
+		return
+	end
+	local root = getRoot(character)
+	if not root then
+		return
+	end
+
+	local active = astralStates[player]
+	if active and active.clone and active.clone.Parent then
+		local cloneRoot = active.clone:FindFirstChild("HumanoidRootPart")
+		if cloneRoot and cloneRoot:IsA("BasePart") then
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.AssemblyAngularVelocity = Vector3.zero
+			local tweenBack = TweenService:Create(root, TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+				CFrame = CFrame.new(cloneRoot.Position + Vector3.new(0, 2.5, 0), cloneRoot.Position + root.CFrame.LookVector),
+			})
+			tweenBack:Play()
+			tweenBack.Completed:Connect(function()
+				if root.Parent then
+					root.AssemblyLinearVelocity = Vector3.zero
+					root.AssemblyAngularVelocity = Vector3.zero
+				end
+			end)
+		end
+		cleanupAstralFor(player)
+		setAbilityActive(player, "astral_projection", false)
+		return
+	end
+
+	local targetPosition = if hitPosition then hitPosition + Vector3.new(0, 3, 0) else (root.Position + root.CFrame.LookVector * 24)
+	local delta = targetPosition - root.Position
+	if delta.Magnitude > 80 then
+		targetPosition = root.Position + delta.Unit * 80
+	end
+
+	character.Archivable = true
+	local clone = character:Clone()
+	clone.Name = character.Name .. "_AstralBody"
+	clone:PivotTo(character:GetPivot())
+	for _, desc in clone:GetDescendants() do
+		if desc:IsA("BasePart") then
+			desc.Anchored = true
+			desc.CanCollide = false
+			desc.Transparency = math.max(desc.Transparency, 0.35)
+		elseif desc:IsA("Script") or desc:IsA("LocalScript") then
+			desc:Destroy()
+		end
+	end
+	clone.Parent = workspace
+	astralStates[player] = { clone = clone }
+	setAbilityActive(player, "astral_projection", true)
+	startContinuousDrain(player, "astral_projection", function()
+		applyAstralProjection(player, nil)
+	end)
+
+	local tweenOut = TweenService:Create(root, TweenInfo.new(0.4, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+		CFrame = CFrame.new(targetPosition, targetPosition + root.CFrame.LookVector),
+	})
+	tweenOut:Play()
+end
+
+local function applyOrbing(player: Player, hitPosition: Vector3?)
+	local character = player.Character
+	if not character then
+		return
+	end
+	local root = getRoot(character)
+	if not root or not hitPosition then
+		return
+	end
+	local humanoid = getHumanoid(character)
+	if not humanoid then
+		return
+	end
+	local orbAsset: Instance? = nil
+	local assets = ReplicatedStorage:FindFirstChild("Assets")
+	if assets then
+		local paigeAssets = assets:FindFirstChild("PaigeAssets")
+		if paigeAssets then
+			orbAsset = paigeAssets:FindFirstChild("OrbingParticle")
+		end
+	end
+
+	local orbInstances: { Instance } = {}
+	local particleData: { { emitter: ParticleEmitter, startRate: number } } = {}
+	local originalTransparency: { [BasePart]: number } = {}
+	local extraParts: { BasePart } = {}
+	local offsets: { [BasePart]: Vector3 } = {}
+
+	local radius = 14
+	for _, part in workspace:GetPartBoundsInRadius(root.Position, radius) do
+		if part:IsDescendantOf(character) then
+			continue
+		end
+		local humModel = findHumanoidAncestor(part)
+		local chosenPart: BasePart? = nil
+		if humModel then
+			local hrp = humModel:FindFirstChild("HumanoidRootPart")
+			if hrp and hrp:IsA("BasePart") then
+				chosenPart = hrp
+			end
+		else
+			local interactable = findInteractableAncestor(part)
+			chosenPart = getPartFromTarget(interactable)
+		end
+		if chosenPart and not chosenPart:IsDescendantOf(character) and offsets[chosenPart] == nil then
+			offsets[chosenPart] = chosenPart.Position - root.Position
+			table.insert(extraParts, chosenPart)
+		end
+	end
+
+	for _, d in character:GetDescendants() do
+		if d:IsA("BasePart") then
+			originalTransparency[d] = d.Transparency
+			local fadeOut = TweenService:Create(d, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+				Transparency = 1,
+			})
+			fadeOut:Play()
+
+			if orbAsset then
+				local cloned = orbAsset:Clone()
+				cloned.Parent = d
+				table.insert(orbInstances, cloned)
+				for _, child in cloned:GetDescendants() do
+					if child:IsA("ParticleEmitter") then
+						table.insert(particleData, { emitter = child, startRate = child.Rate })
+					end
+				end
+				if cloned:IsA("ParticleEmitter") then
+					table.insert(particleData, { emitter = cloned, startRate = cloned.Rate })
+				end
+			end
+		end
+	end
+	for _, p in extraParts do
+		originalTransparency[p] = p.Transparency
+		local fadeOut = TweenService:Create(p, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			Transparency = 1,
+		})
+		fadeOut:Play()
+		if orbAsset then
+			local cloned = orbAsset:Clone()
+			cloned.Parent = p
+			table.insert(orbInstances, cloned)
+			for _, child in cloned:GetDescendants() do
+				if child:IsA("ParticleEmitter") then
+					table.insert(particleData, { emitter = child, startRate = child.Rate })
+				end
+			end
+		end
+	end
+
+	local originalWalkSpeed = humanoid.WalkSpeed
+	local originalJumpPower = humanoid.JumpPower
+	local originalAutoRotate = humanoid.AutoRotate
+	humanoid.WalkSpeed = 0
+	humanoid.JumpPower = 0
+	humanoid.AutoRotate = false
+
+	local upTween = TweenService:Create(root, TweenInfo.new(0.22, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+		CFrame = root.CFrame + Vector3.new(0, 3, 0),
+	})
+	upTween:Play()
+	upTween.Completed:Wait()
+
+	local destTop = hitPosition + Vector3.new(0, 3, 0)
+	local destBottom = hitPosition
+	local currentLook = root.CFrame.LookVector
+
+	root.CFrame = CFrame.new(destTop, destTop + currentLook)
+	for part, offset in offsets do
+		if part.Parent then
+			part.CFrame = CFrame.new(destTop + offset)
+		end
+	end
+
+	local downTween = TweenService:Create(root, TweenInfo.new(0.22, Enum.EasingStyle.Sine, Enum.EasingDirection.In), {
+		CFrame = CFrame.new(destBottom, destBottom + currentLook),
+	})
+	downTween:Play()
+	downTween.Completed:Wait()
+
+	for part, original in originalTransparency do
+		if part.Parent then
+			local fadeIn = TweenService:Create(part, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+				Transparency = original,
+			})
+			fadeIn:Play()
+		end
+	end
+
+	humanoid.WalkSpeed = originalWalkSpeed
+	humanoid.JumpPower = originalJumpPower
+	humanoid.AutoRotate = originalAutoRotate
+
+	task.spawn(function()
+		local steps = 10
+		for i = 1, steps do
+			local alpha = i / steps
+			for _, info in particleData do
+				if info.emitter.Parent then
+					info.emitter.Rate = info.startRate * (1 - alpha)
+				end
+			end
+			task.wait(0.08)
+		end
+		for _, info in particleData do
+			if info.emitter.Parent then
+				info.emitter.Enabled = false
+			end
+		end
+	end)
+
+	task.delay(3, function()
+		for _, inst in orbInstances do
+			if inst.Parent then
+				inst:Destroy()
+			end
+		end
+	end)
+end
+
+local function applyTelekineticOrbing(player: Player, target: Instance?, hitPosition: Vector3?)
+	local character = player.Character
+	if not character then
+		return
+	end
+	local root = getRoot(character)
+	if not root then
+		return
+	end
+	local part = getTargetPart(target)
+	if not part then
+		return
+	end
+	if part:IsDescendantOf(character) then
+		return
+	end
+
+	-- Telekinesis-like movement toward mouse, clamped to 20 studs from caster.
+	local cursorPos = if hitPosition then hitPosition else (root.Position + root.CFrame.LookVector * 20)
+	local toCursor = cursorPos - root.Position
+	if toCursor.Magnitude < 0.01 then
+		toCursor = root.CFrame.LookVector
+	end
+	local distance = math.min(toCursor.Magnitude, 20)
+	local destination = root.Position + toCursor.Unit * distance + Vector3.new(0, 3, 0)
+
+	-- Apply Paige orbing particle on target during movement.
+	local assets = ReplicatedStorage:FindFirstChild("Assets")
+	local paigeAssets = assets and assets:FindFirstChild("PaigeAssets")
+	local orbAsset = paigeAssets and paigeAssets:FindFirstChild("OrbingParticle")
+	local spawnedFx: { Instance } = {}
+	local emitters: { { emitter: ParticleEmitter, startRate: number } } = {}
+	if orbAsset then
+		local cloned = orbAsset:Clone()
+		cloned.Parent = part
+		table.insert(spawnedFx, cloned)
+		if cloned:IsA("ParticleEmitter") then
+			table.insert(emitters, { emitter = cloned, startRate = cloned.Rate })
+		end
+		for _, d in cloned:GetDescendants() do
+			if d:IsA("ParticleEmitter") then
+				table.insert(emitters, { emitter = d, startRate = d.Rate })
+			end
+		end
+	end
+
+	movePartSmooth(part, destination, 0.2, 0.9)
+
+	local humModel = findHumanoidAncestor(part)
+	if humModel and humModel ~= character then
+		local hum = humModel:FindFirstChildOfClass("Humanoid")
+		if hum then
+			triggerTimedRagdoll(hum, 2.5)
+		end
+	end
+
+	task.spawn(function()
+		local steps = 10
+		for i = 1, steps do
+			local alpha = i / steps
+			for _, info in emitters do
+				if info.emitter.Parent then
+					info.emitter.Rate = info.startRate * (1 - alpha)
+				end
+			end
+			task.wait(0.08)
+		end
+		for _, info in emitters do
+			if info.emitter.Parent then
+				info.emitter.Enabled = false
+			end
+		end
+	end)
+
+	task.delay(3, function()
+		for _, inst in spawnedFx do
+			if inst.Parent then
+				inst:Destroy()
+			end
+		end
+	end)
+end
+
+local function applyHealing(player: Player)
+	local state = healingStates[player]
+	if not state then
+		return
+	end
+	local targetHumanoid = state.target
+	local character = player.Character
+	if not character or not targetHumanoid.Parent then
+		return
+	end
+	local root = getRoot(character)
+	local targetModel = targetHumanoid.Parent
+	if not root or not targetModel or not targetModel:IsA("Model") then
+		return
+	end
+	local targetRoot = targetModel:FindFirstChild("HumanoidRootPart")
+	if not targetRoot or not targetRoot:IsA("BasePart") then
+		return
+	end
+	if targetModel == character then
+		return
+	end
+
+	-- Move smoothly using physics toward the target's front side (no CFrame snapping).
+	local desiredPos = targetRoot.Position + targetRoot.CFrame.LookVector * 3
+	local toDesired = desiredPos - root.Position
+	root.AssemblyLinearVelocity = toDesired * 6
+	targetHumanoid.Health = math.clamp(targetHumanoid.Health + 2.5, 0, targetHumanoid.MaxHealth)
+end
+
+local function startHealing(player: Player, target: Instance?)
+	local character = player.Character
+	if not character then
+		return
+	end
+	local targetModel = findHumanoidAncestor(target)
+	if not targetModel or targetModel == character then
+		return
+	end
+	local targetHumanoid = targetModel:FindFirstChildOfClass("Humanoid")
+	if not targetHumanoid or targetHumanoid.Health <= 0 then
+		return
+	end
+	local healerHumanoid = getHumanoid(character)
+	if not healerHumanoid then
+		return
+	end
+	healingStates[player] = {
+		target = targetHumanoid,
+		walkSpeed = healerHumanoid.WalkSpeed,
+		jumpPower = healerHumanoid.JumpPower,
+		autoRotate = healerHumanoid.AutoRotate,
+	}
+	healerHumanoid.WalkSpeed = 0
+	healerHumanoid.JumpPower = 0
+	healerHumanoid.AutoRotate = false
+	setAbilityActive(player, "healing", true)
+	startContinuousDrain(player, "healing", function()
+		stopHealing(player)
+	end)
+	task.spawn(function()
+		while player.Parent and isAbilityActive(player, "healing") do
+			applyHealing(player)
+			task.wait(0.1)
+		end
+	end)
+end
+
+local function stopHealing(player: Player)
+	local character = player.Character
+	local healerHumanoid = character and getHumanoid(character)
+	local state = healingStates[player]
+	if healerHumanoid and state then
+		healerHumanoid.WalkSpeed = state.walkSpeed
+		healerHumanoid.JumpPower = state.jumpPower
+		healerHumanoid.AutoRotate = state.autoRotate
+	end
+	local root = character and getRoot(character)
+	if root then
+		root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
+	end
+	healingStates[player] = nil
+	setAbilityActive(player, "healing", false)
+	beginCooldown(player, "healing")
+end
+
+local function applyMolecularFreeze(player: Player)
+	local character = player.Character
+	if not character then
+		return
+	end
+	local root = getRoot(character)
+	local humanoid = getHumanoid(character)
+	if not root then
+		return
+	end
+	if humanoid then
+		playAnimation(humanoid, "130317535855114", false)
+	end
+
+	local hitParts = workspace:GetPartBoundsInRadius(root.Position, 45)
+	local frozen: { BasePart } = {}
+	local frozenHumanoids: {
+		[Humanoid]: { walkSpeed: number, jumpPower: number, autoRotate: boolean },
+	} = {}
+	for _, part in hitParts do
+		local humanoidModel = findHumanoidAncestor(part)
+		if humanoidModel and humanoidModel ~= character then
+			local hum = humanoidModel:FindFirstChildOfClass("Humanoid")
+			local humRoot = humanoidModel:FindFirstChild("HumanoidRootPart")
+			if hum and humRoot and humRoot:IsA("BasePart") and not frozenHumanoids[hum] then
+				frozenHumanoids[hum] = {
+					walkSpeed = hum.WalkSpeed,
+					jumpPower = hum.JumpPower,
+					autoRotate = hum.AutoRotate,
+				}
+				humRoot.Anchored = true
+				hum.WalkSpeed = 0
+				hum.JumpPower = 0
+				hum.AutoRotate = false
+			end
+		end
+
+		local interactable = findInteractableAncestor(part)
+		local targetPart = getPartFromTarget(interactable)
+		if targetPart and not targetPart.Anchored and not targetPart:IsDescendantOf(character) then
+			targetPart.Anchored = true
+			table.insert(frozen, targetPart)
+		end
+	end
+
+	freezeStates[player] = {
+		frozenParts = frozen,
+		frozenHumanoids = frozenHumanoids,
+	}
+	setAbilityActive(player, "molecular_freeze", true)
+	startContinuousDrain(player, "molecular_freeze", function()
+		local state = freezeStates[player]
+		if not state then
+			return
+		end
+		for _, part in state.frozenParts do
+			if part.Parent then
+				part.Anchored = false
+			end
+		end
+		for hum, stored in state.frozenHumanoids do
+			if hum.Parent then
+				local model = hum.Parent
+				if model and model:IsA("Model") then
+					local humRoot = model:FindFirstChild("HumanoidRootPart")
+					if humRoot and humRoot:IsA("BasePart") then
+						humRoot.Anchored = false
+					end
+				end
+				hum.WalkSpeed = stored.walkSpeed
+				hum.JumpPower = stored.jumpPower
+				hum.AutoRotate = stored.autoRotate
+			end
+		end
+		freezeStates[player] = nil
+		setAbilityActive(player, "molecular_freeze", false)
+	end)
+end
+
+local function stopMolecularFreeze(player: Player)
+	local state = freezeStates[player]
+	if not state then
+		setAbilityActive(player, "molecular_freeze", false)
+		return
+	end
+	for _, part in state.frozenParts do
+		if part.Parent then
+			part.Anchored = false
+		end
+	end
+	for hum, stored in state.frozenHumanoids do
+		if hum.Parent then
+			local model = hum.Parent
+			if model and model:IsA("Model") then
+				local humRoot = model:FindFirstChild("HumanoidRootPart")
+				if humRoot and humRoot:IsA("BasePart") then
+					humRoot.Anchored = false
+				end
+			end
+			hum.WalkSpeed = stored.walkSpeed
+			hum.JumpPower = stored.jumpPower
+			hum.AutoRotate = stored.autoRotate
+		end
+	end
+	freezeStates[player] = nil
+	setAbilityActive(player, "molecular_freeze", false)
+	beginCooldown(player, "molecular_freeze")
+end
+
+local function applyMolecularCombustion(player: Player, _target: Instance?, hitPosition: Vector3?)
+	if not hitPosition then
+		return
+	end
+	local character = player.Character
+	local humanoid = character and getHumanoid(character)
+	if humanoid then
+		playAnimation(humanoid, "107060335668362", false)
+	end
+	local assets = ReplicatedStorage:FindFirstChild("Assets")
+	local piperAssets = if assets then assets:FindFirstChild("PiperAssets") else nil
+	local assetAttachment: Attachment? = nil
+	if piperAssets then
+		local found = piperAssets:FindFirstChild("CombustionAttachment")
+		if found and found:IsA("Attachment") then
+			assetAttachment = found
+		end
+	end
+
+	local effectPart = Instance.new("Part")
+	effectPart.Name = "PiperCombustionFX"
+	effectPart.Anchored = true
+	effectPart.CanCollide = false
+	effectPart.Transparency = 1
+	effectPart.Size = Vector3.new(1, 1, 1)
+	effectPart.CFrame = CFrame.new(hitPosition)
+	effectPart.Parent = workspace
+
+	local emitters: { { emitter: ParticleEmitter, startRate: number } } = {}
+	if assetAttachment then
+		local newAttachment = assetAttachment:Clone()
+		newAttachment.Parent = effectPart
+		for _, d in newAttachment:GetDescendants() do
+			if d:IsA("ParticleEmitter") then
+				table.insert(emitters, { emitter = d, startRate = d.Rate })
+			end
+		end
+	end
+
+	local castBox = Vector3.new(10, 10, 10)
+	local hitParts = workspace:GetPartBoundsInBox(CFrame.new(hitPosition), castBox)
+	local affectedHumanoids: { [Humanoid]: boolean } = {}
+	local affectedParts: { [BasePart]: boolean } = {}
+	for _, part in hitParts do
+		local humanoidModel = findHumanoidAncestor(part)
+		if humanoidModel then
+			local hum = humanoidModel:FindFirstChildOfClass("Humanoid")
+			local humRoot = humanoidModel:FindFirstChild("HumanoidRootPart")
+			if hum and hum.Health > 0 and humRoot and humRoot:IsA("BasePart") and humanoidModel ~= player.Character and not affectedHumanoids[hum] then
+				affectedHumanoids[hum] = true
+				hum:TakeDamage(45)
+				local away = (humRoot.Position - hitPosition)
+				local dir = if away.Magnitude > 0.01 then away.Unit else Vector3.new(0, 1, 0)
+				humRoot.AssemblyLinearVelocity = dir * 95 + Vector3.new(0, 22, 0)
+				triggerTimedRagdoll(hum, 3)
+			end
+		else
+			local interactable = findInteractableAncestor(part)
+			local targetPart = getPartFromTarget(interactable)
+			if targetPart and not affectedParts[targetPart] then
+				affectedParts[targetPart] = true
+				local away = (targetPart.Position - hitPosition)
+				local dir = if away.Magnitude > 0.01 then away.Unit else Vector3.new(0, 1, 0)
+				targetPart.AssemblyLinearVelocity = dir * 85 + Vector3.new(0, 18, 0)
+			end
+		end
+	end
+
+	task.spawn(function()
+		local steps = 12
+		for i = 1, steps do
+			local alpha = i / steps
+			for _, info in emitters do
+				if info.emitter.Parent then
+					info.emitter.Rate = info.startRate * (1 - alpha)
+				end
+			end
+			task.wait(0.08)
+		end
+		for _, info in emitters do
+			if info.emitter.Parent then
+				info.emitter.Enabled = false
+			end
+		end
+	end)
+
+	task.delay(3, function()
+		if effectPart.Parent then
+			effectPart:Destroy()
+		end
+	end)
+end
+
+local function applyPremonition(player: Player, target: Instance?)
+	local character = player.Character
+	if not character then
+		return
+	end
+	local root = getRoot(character)
+	if not root then
+		return
+	end
+
+	local chosenModel = findHumanoidAncestor(target)
+	if chosenModel == character then
+		chosenModel = nil
+	end
+
+	if not chosenModel then
+		local closest: Model? = nil
+		local closestDist = math.huge
+		for _, model in workspace:GetDescendants() do
+			if model:IsA("Model") and model ~= character then
+				local hum = model:FindFirstChildOfClass("Humanoid")
+				local hrp = model:FindFirstChild("HumanoidRootPart")
+				if hum and hum.Health > 0 and hrp and hrp:IsA("BasePart") then
+					local dist = (hrp.Position - root.Position).Magnitude
+					if dist < closestDist and dist <= 100 then
+						closest = model
+						closestDist = dist
+					end
+				end
+			end
+		end
+		chosenModel = closest
+	end
+
+	if not chosenModel then
+		return
+	end
+
+	local targetHum = chosenModel:FindFirstChildOfClass("Humanoid")
+	if not targetHum then
+		return
+	end
+
+	local highlight = Instance.new("Highlight")
+	highlight.FillTransparency = 1
+	highlight.OutlineColor = Color3.fromRGB(255, 203, 120)
+	highlight.OutlineTransparency = 0
+	highlight.Adornee = chosenModel
+	highlight.Parent = chosenModel
+	Debris:AddItem(highlight, 4)
+
+	powerCastRemoteEvent:FireClient(player, "premonition_view", targetHum, 4)
+	premonitionStates[player] = { target = targetHum }
+	setAbilityActive(player, "premonition", true)
+	startContinuousDrain(player, "premonition", function()
+		powerCastRemoteEvent:FireClient(player, "premonition_stop")
+		premonitionStates[player] = nil
+		setAbilityActive(player, "premonition", false)
+	end)
+end
+
+local function stopPremonition(player: Player)
+	premonitionStates[player] = nil
+	powerCastRemoteEvent:FireClient(player, "premonition_stop")
+	setAbilityActive(player, "premonition", false)
+	beginCooldown(player, "premonition")
+end
+
+local function applyLevitation(player: Player)
+	local character = player.Character
+	if not character then
+		return
+	end
+	local root = getRoot(character)
+	local humanoid = getHumanoid(character)
+	if not root or not humanoid then
+		return
+	end
+	playAnimation(humanoid, "95502198265787", true)
+	levitationStates[player] = {
+		humanoid = humanoid,
+		jumpPower = humanoid.JumpPower,
+		velocity = Vector3.zero,
+	}
+	humanoid.JumpPower = humanoid.JumpPower + 35
+	humanoid.AutoRotate = false
+	setAbilityActive(player, "levitation", true)
+	startContinuousDrain(player, "levitation", function()
+		local state = levitationStates[player]
+		if state and state.humanoid.Parent then
+			state.humanoid.JumpPower = state.jumpPower
+			state.humanoid.AutoRotate = true
+		end
+		levitationStates[player] = nil
+		setAbilityActive(player, "levitation", false)
+	end)
+end
+
+local function stopLevitation(player: Player)
+	local state = levitationStates[player]
+	if state and state.humanoid.Parent then
+		state.humanoid.JumpPower = state.jumpPower
+		state.humanoid.AutoRotate = true
+	end
+	levitationStates[player] = nil
+	setAbilityActive(player, "levitation", false)
+	beginCooldown(player, "levitation")
+end
+
+local function updateLevitationControl(player: Player, moveDirection: Vector3?, cameraLook: Vector3?)
+	local state = levitationStates[player]
+	local character = player.Character
+	if not state or not character then
+		return
+	end
+	local root = getRoot(character)
+	if not root then
+		return
+	end
+	local move = if moveDirection then moveDirection else Vector3.zero
+	local look = if cameraLook then cameraLook else Vector3.new(0, 0, -1)
+	local vertical = 0
+	if look.Y > 0.2 then
+		vertical = 18 * look.Y
+	elseif look.Y < -0.3 then
+		vertical = 18 * look.Y
+	end
+	local desiredVelocity = Vector3.new(move.X * 48, vertical, move.Z * 48)
+	state.velocity = state.velocity:Lerp(desiredVelocity, 0.16)
+	root.AssemblyLinearVelocity = state.velocity
+end
+
+local handlers: { [string]: (Player, Instance?, Vector3?) -> () } = {
+	telekinesis = function(player, target, hitPos)
+		applyTelekinesis(player, target, hitPos)
+	end,
+	telekinetic_deviation = function(player, target)
+		applyTelekineticDeviation(player, target)
+	end,
+	astral_projection = function(player, _, hitPos)
+		applyAstralProjection(player, hitPos)
+	end,
+	orbing = function(player, _, hitPos)
+		applyOrbing(player, hitPos)
+	end,
+	telekinetic_orbing = function(player, target, hitPos)
+		applyTelekineticOrbing(player, target, hitPos)
+	end,
+	healing = function(player, target)
+		startHealing(player, target)
+	end,
+	molecular_freeze = function(player)
+		applyMolecularFreeze(player)
+	end,
+	molecular_combustion = function(player, target, hitPos)
+		applyMolecularCombustion(player, target, hitPos)
+	end,
+	premonition = function(player, target)
+		applyPremonition(player, target)
+	end,
+	levitation = function(player)
+		applyLevitation(player)
+	end,
+}
+
+powerCastRemoteEvent.OnServerEvent:Connect(function(
+	player: Player,
+	powerId: string,
+	target: Instance?,
+	hitPosition: Vector3?,
+	castAction: string?,
+	cameraLook: Vector3?
+)
+	if type(powerId) ~= "string" then
+		return
+	end
+	if astralStates[player] and powerId ~= "astral_projection" then
+		return
+	end
+	if powerId == "astral_projection" and type(castAction) == "string" then
+		if castAction == "start" then
+			local allowed, _ = canCast(player, powerId)
+			if allowed then
+				applyAstralProjection(player, hitPosition)
+			end
+		elseif castAction == "stop" then
+			if astralStates[player] then
+				applyAstralProjection(player, hitPosition)
+			end
+			beginCooldown(player, "astral_projection")
+		end
+		return
+	end
+	if powerId == "molecular_freeze" and type(castAction) == "string" then
+		if castAction == "start" then
+			local allowed, _ = canCast(player, powerId)
+			if allowed then
+				applyMolecularFreeze(player)
+			end
+		elseif castAction == "stop" then
+			stopMolecularFreeze(player)
+		end
+		return
+	end
+	if powerId == "premonition" and type(castAction) == "string" then
+		if castAction == "start" then
+			local allowed, _ = canCast(player, powerId)
+			if allowed then
+				applyPremonition(player, target)
+			end
+		elseif castAction == "stop" then
+			stopPremonition(player)
+		end
+		return
+	end
+	if powerId == "levitation" and type(castAction) == "string" then
+		if castAction == "start" then
+			local allowed, _ = canCast(player, powerId)
+			if allowed then
+				applyLevitation(player)
+			end
+		elseif castAction == "update" then
+			updateLevitationControl(player, hitPosition, cameraLook)
+		elseif castAction == "stop" then
+			stopLevitation(player)
+		end
+		return
+	end
+	if powerId == "healing" and type(castAction) == "string" then
+		if castAction == "start" then
+			local allowed, _ = canCast(player, powerId)
+			if allowed then
+				startHealing(player, target)
+			end
+		elseif castAction == "stop" then
+			stopHealing(player)
+		end
+		return
+	end
+	if powerId == "telekinesis" and type(castAction) == "string" then
+		if castAction == "start" then
+			local allowed, _ = canCast(player, powerId)
+			if not allowed then
+				return
+			end
+			applyTelekinesis(player, target, hitPosition)
+			return
+		elseif castAction == "update" then
+			updateTelekinesisTarget(player, hitPosition)
+			return
+		elseif castAction == "push" then
+			pushTelekinesisTarget(player, hitPosition)
+			clearTelekinesis(player)
+			return
+		elseif castAction == "stop" then
+			clearTelekinesis(player)
+			return
+		end
+	end
+	if powerId == "astral_projection" and astralStates[player] then
+		applyAstralProjection(player, hitPosition)
+		return
+	end
+	local allowed, _power = canCast(player, powerId)
+	if not allowed then
+		return
+	end
+	local handler = handlers[powerId]
+	if handler then
+		beginCooldown(player, powerId)
+		handler(player, target, hitPosition)
+	end
+end)
+
+Players.PlayerAdded:Connect(function(player)
+	player:SetAttribute("Energy", CharacterConfig.DefaultEnergy)
+	startEnergyRegen(player)
+	player.Chatted:Connect(function(message)
+		local lower = string.lower(message)
+		if string.find(lower, "return to sender", 1, true) then
+			returnInteractablesToStart()
+		end
+	end)
+end)
+
+for _, player in Players:GetPlayers() do
+	player:SetAttribute("Energy", CharacterConfig.DefaultEnergy)
+	startEnergyRegen(player)
+	player.Chatted:Connect(function(message)
+		local lower = string.lower(message)
+		if string.find(lower, "return to sender", 1, true) then
+			returnInteractablesToStart()
+		end
+	end)
+end
+
+Players.PlayerRemoving:Connect(function(player)
+	cleanupAstralFor(player)
+	clearTelekinesis(player)
+	stopMolecularFreeze(player)
+	stopPremonition(player)
+	stopLevitation(player)
+	stopHealing(player)
+	cooldowns[player] = nil
+	lastEnergySpendAt[player] = nil
+	energyRegenActive[player] = nil
+end)
+
+Players.PlayerAdded:Connect(function(player)
+	player.CharacterRemoving:Connect(function()
+		cleanupAstralFor(player)
+		clearTelekinesis(player)
+		stopMolecularFreeze(player)
+		stopPremonition(player)
+		stopLevitation(player)
+		stopHealing(player)
+	end)
+end)
+
+snapshotInteractables()
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="Script" referent="8">
+        <Properties>
+          <string name="Name">CharacterSelect</string>
+          <token name="RunContext">0</token>
+          <string name="Source"><![CDATA[local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local shared = ReplicatedStorage:WaitForChild("Shared", 30)
+if not shared then
+	error("[CharacterSelect] ReplicatedStorage.Shared missing.")
+end
+
+local characterConfigModule = shared:WaitForChild("CharacterConfig", 10)
+local ok, CharacterConfig = pcall(require, characterConfigModule)
+if not ok or type(CharacterConfig) ~= "table" then
+	error("[CharacterSelect] Failed to require CharacterConfig.")
+end
+
+local validChoices: { [string]: boolean } = {}
+for _, name in CharacterConfig.Choices do
+	validChoices[name] = true
+end
+
+local function ensureSelectionRemote(): RemoteEvent
+	local folder = ReplicatedStorage:FindFirstChild(CharacterConfig.RemotesFolderName)
+	if not folder then
+		folder = Instance.new("Folder")
+		folder.Name = CharacterConfig.RemotesFolderName
+		folder.Parent = ReplicatedStorage
+	end
+
+	local ev = folder:FindFirstChild(CharacterConfig.SelectionRemoteName)
+	if not ev then
+		ev = Instance.new("RemoteEvent")
+		ev.Name = CharacterConfig.SelectionRemoteName
+		ev.Parent = folder
+	elseif not ev:IsA("RemoteEvent") then
+		error("[CharacterSelect] Selection event must be a RemoteEvent.")
+	end
+
+	return ev :: RemoteEvent
+end
+
+local selectRemote = ensureSelectionRemote()
+
+local function getOrCreateBillboard(character: Model): BillboardGui?
+	local head = character:FindFirstChild("Head")
+	if not head or not head:IsA("BasePart") then
+		return nil
+	end
+
+	local existing = head:FindFirstChild("ChosenCharacterBillboard")
+	if existing and existing:IsA("BillboardGui") then
+		return existing
+	end
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "ChosenCharacterBillboard"
+	billboard.Size = UDim2.new(4.2, 0, 1.3, 0)
+	billboard.StudsOffset = Vector3.new(0, 2.8, 0)
+	billboard.AlwaysOnTop = true
+	billboard.MaxDistance = 100
+	billboard.Parent = head
+
+	local frame = Instance.new("Frame")
+	frame.Name = "Container"
+	frame.BackgroundTransparency = 1
+	frame.BorderSizePixel = 0
+	frame.Size = UDim2.fromScale(1, 1)
+	frame.Parent = billboard
+
+	local barBg = Instance.new("Frame")
+	barBg.Name = "HealthBarBg"
+	barBg.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
+	barBg.BackgroundTransparency = 0.2
+	barBg.BorderSizePixel = 0
+	barBg.Size = UDim2.new(1, 0, 0.2, 0)
+	barBg.Position = UDim2.new(0, 0, 0, 0)
+	barBg.Parent = frame
+
+	local barFill = Instance.new("Frame")
+	barFill.Name = "HealthBarFill"
+	barFill.BackgroundColor3 = Color3.fromRGB(74, 197, 94)
+	barFill.BorderSizePixel = 0
+	barFill.Size = UDim2.fromScale(1, 1)
+	barFill.Parent = barBg
+
+	local bgCorner = Instance.new("UICorner")
+	bgCorner.CornerRadius = UDim.new(0, 5)
+	bgCorner.Parent = barBg
+
+	local fillCorner = Instance.new("UICorner")
+	fillCorner.CornerRadius = UDim.new(0, 5)
+	fillCorner.Parent = barFill
+
+	local label = Instance.new("TextLabel")
+	label.Name = "InfoText"
+	label.BackgroundTransparency = 1
+	label.Size = UDim2.new(1, 0, 0.78, 0)
+	label.Position = UDim2.new(0, 0, 0.22, 0)
+	label.Font = Enum.Font.GothamBold
+	label.TextColor3 = Color3.fromRGB(255, 255, 255)
+	label.TextSize = 14
+	label.TextWrapped = true
+	label.Parent = frame
+
+	return billboard
+end
+
+local function updateBillboardText(player: Player, character: Model)
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not humanoid then
+		return
+	end
+
+	local selectedCharacter = player:GetAttribute("ChosenCharacter")
+	if type(selectedCharacter) ~= "string" then
+		selectedCharacter = "Unknown"
+	end
+
+	local billboard = getOrCreateBillboard(character)
+	if not billboard then
+		return
+	end
+
+	local container = billboard:FindFirstChild("Container")
+	if not container or not container:IsA("Frame") then
+		return
+	end
+	local label = container:FindFirstChild("InfoText")
+	if not label or not label:IsA("TextLabel") then
+		return
+	end
+	local barBg = container:FindFirstChild("HealthBarBg")
+	if barBg and barBg:IsA("Frame") then
+		local barFill = barBg:FindFirstChild("HealthBarFill")
+		if barFill and barFill:IsA("Frame") then
+			local maxHealth = math.max(humanoid.MaxHealth, 1)
+			local ratio = math.clamp(humanoid.Health / maxHealth, 0, 1)
+			barFill.Size = UDim2.fromScale(ratio, 1)
+		end
+	end
+
+	label.Text = string.format("%s  |  %s", selectedCharacter, player.Name)
+end
+
+local healthConnections: { [Player]: RBXScriptConnection } = {}
+
+local function clearHealthConnection(player: Player)
+	local conn = healthConnections[player]
+	if conn then
+		conn:Disconnect()
+		healthConnections[player] = nil
+	end
+end
+
+local function cleanupCharacterUi(character: Model)
+	local head = character:FindFirstChild("Head")
+	if head and head:IsA("BasePart") then
+		local billboard = head:FindFirstChild("ChosenCharacterBillboard")
+		if billboard then
+			billboard:Destroy()
+		end
+	end
+end
+
+local function applySelectionToCharacter(player: Player, character: Model)
+	local chosen = player:GetAttribute("ChosenCharacter")
+	if type(chosen) ~= "string" then
+		return
+	end
+
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not humanoid then
+		return
+	end
+
+	character:SetAttribute("ChosenCharacter", chosen)
+	player:SetAttribute("Energy", CharacterConfig.DefaultEnergy)
+	character:SetAttribute("Energy", CharacterConfig.DefaultEnergy)
+
+	updateBillboardText(player, character)
+	clearHealthConnection(player)
+	healthConnections[player] = humanoid.HealthChanged:Connect(function()
+		updateBillboardText(player, character)
+	end)
+end
+
+selectRemote.OnServerEvent:Connect(function(player: Player, characterName: string)
+	if type(characterName) ~= "string" or not validChoices[characterName] then
+		return
+	end
+
+	player:SetAttribute("ChosenCharacter", characterName)
+	if player:GetAttribute("Energy") == nil then
+		player:SetAttribute("Energy", CharacterConfig.DefaultEnergy)
+	end
+
+	local character = player.Character
+	if character then
+		applySelectionToCharacter(player, character)
+	end
+end)
+
+Players.PlayerAdded:Connect(function(player)
+	player.CharacterAdded:Connect(function(character)
+		task.wait(0.2)
+		applySelectionToCharacter(player, character)
+	end)
+
+	player.CharacterRemoving:Connect(function(character)
+		clearHealthConnection(player)
+		cleanupCharacterUi(character)
+		player:SetAttribute("ChosenCharacter", nil)
+		player:SetAttribute("Energy", CharacterConfig.DefaultEnergy)
+	end)
+end)
+
+for _, player in Players:GetPlayers() do
+	player.CharacterAdded:Connect(function(character)
+		task.wait(0.2)
+		applySelectionToCharacter(player, character)
+	end)
+
+	player.CharacterRemoving:Connect(function(character)
+		clearHealthConnection(player)
+		cleanupCharacterUi(character)
+		player:SetAttribute("ChosenCharacter", nil)
+		player:SetAttribute("Energy", CharacterConfig.DefaultEnergy)
+	end)
+end
+
+Players.PlayerRemoving:Connect(function(player)
+	clearHealthConnection(player)
+end)
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="9">
+        <Properties>
+          <string name="Name">RagdollHandler</string>
+          <string name="Source"><![CDATA[local PhysicsService = game:GetService("PhysicsService")
+
+local module = {}
+local RAGDOLL_COLLISION_GROUP = "RagdollCharacter"
+local ORIGINAL_COLLISION_GROUP_ATTR = "RagdollOriginalCollisionGroup"
+local ORIGINAL_CAN_COLLIDE_ATTR = "RagdollOrigCanCollide"
+
+local function ensureRagdollCollisionGroup()
+	local hasGroup = false
+	local ok, result = pcall(function()
+		return PhysicsService:IsCollisionGroupRegistered(RAGDOLL_COLLISION_GROUP)
+	end)
+	if ok then
+		hasGroup = result == true
+	end
+	if not hasGroup then
+		pcall(function()
+			PhysicsService:RegisterCollisionGroup(RAGDOLL_COLLISION_GROUP)
+		end)
+	end
+	pcall(function()
+		PhysicsService:CollisionGroupSetCollidable(RAGDOLL_COLLISION_GROUP, RAGDOLL_COLLISION_GROUP, false)
+	end)
+end
+
+local function clampAssemblyVelocity(part: BasePart)
+	local linear = part.AssemblyLinearVelocity
+	local linearMagnitude = linear.Magnitude
+	if linearMagnitude > 90 then
+		part.AssemblyLinearVelocity = linear.Unit * 90
+	end
+
+	local angular = part.AssemblyAngularVelocity
+	local angularMagnitude = angular.Magnitude
+	if angularMagnitude > 35 then
+		part.AssemblyAngularVelocity = angular.Unit * 35
+	end
+end
+
+local function saveOriginalCanCollide(part: BasePart)
+	if part:GetAttribute(ORIGINAL_CAN_COLLIDE_ATTR) == nil then
+		part:SetAttribute(ORIGINAL_CAN_COLLIDE_ATTR, part.CanCollide)
+	end
+end
+
+local function restoreOriginalCanCollide(part: BasePart)
+	local orig = part:GetAttribute(ORIGINAL_CAN_COLLIDE_ATTR)
+	if typeof(orig) == "boolean" then
+		part.CanCollide = orig
+		part:SetAttribute(ORIGINAL_CAN_COLLIDE_ATTR, nil)
+	end
+end
+
+type RagdollEnableOpts = {
+	skipVelocityClamp: boolean?,
+}
+
+local function setRagdollEnabled(humanoid: Humanoid, isEnabled: boolean, opts: RagdollEnableOpts?)
+	local character = humanoid.Parent
+	if not character then
+		return
+	end
+
+	local skipClamp = opts and opts.skipVelocityClamp == true
+	local rootPart = character:FindFirstChild("HumanoidRootPart")
+
+	-- Collision: only override while ragdoll is active. When disabling, restore saved values.
+	-- (Previously HRP was always CanCollide=false and "off" zeroed all limbs — NPCs lost floor collision.)
+	if isEnabled then
+		if rootPart and rootPart:IsA("BasePart") then
+			saveOriginalCanCollide(rootPart)
+			rootPart.CanCollide = false
+		end
+		for _, inst in ipairs(character:GetDescendants()) do
+			if inst:IsA("BasePart") and inst.Name ~= "HumanoidRootPart" then
+				local isAccessoryHandle = inst.Parent and inst.Parent:IsA("Accessory")
+				if isAccessoryHandle then
+					saveOriginalCanCollide(inst)
+					inst.CanCollide = false
+				else
+					saveOriginalCanCollide(inst)
+					inst.CanCollide = true
+					if inst:GetAttribute(ORIGINAL_COLLISION_GROUP_ATTR) == nil then
+						inst:SetAttribute(ORIGINAL_COLLISION_GROUP_ATTR, inst.CollisionGroup)
+					end
+					inst.CollisionGroup = RAGDOLL_COLLISION_GROUP
+					if not skipClamp then
+						clampAssemblyVelocity(inst)
+					end
+				end
+			end
+		end
+	else
+		if rootPart and rootPart:IsA("BasePart") then
+			restoreOriginalCanCollide(rootPart)
+		end
+		for _, inst in ipairs(character:GetDescendants()) do
+			if inst:IsA("BasePart") and inst.Name ~= "HumanoidRootPart" then
+				local isAccessoryHandle = inst.Parent and inst.Parent:IsA("Accessory")
+				if isAccessoryHandle then
+					restoreOriginalCanCollide(inst)
+				else
+					restoreOriginalCanCollide(inst)
+					local original = inst:GetAttribute(ORIGINAL_COLLISION_GROUP_ATTR)
+					if typeof(original) == "string" and original ~= "" then
+						inst.CollisionGroup = original
+						inst:SetAttribute(ORIGINAL_COLLISION_GROUP_ATTR, nil)
+					end
+				end
+			end
+		end
+	end
+
+	local ragdollConstraints = character:FindFirstChild("RagdollConstraints")
+	if ragdollConstraints then
+		for _, constraint in pairs(ragdollConstraints:GetChildren()) do
+			if constraint:IsA("Constraint") then
+				local rigidPointer = constraint:FindFirstChild("RigidJoint")
+				local rigidJoint = rigidPointer and rigidPointer:IsA("ObjectValue") and rigidPointer.Value
+				if rigidJoint and rigidJoint:IsA("Motor6D") then
+					local expected = (not isEnabled) and constraint.Attachment1 and constraint.Attachment1.Parent or nil
+					if rigidJoint.Part1 ~= expected then
+						rigidJoint.Part1 = expected
+					end
+				end
+			end
+		end
+	end
+end
+
+local function keepRagdollActiveLightweight(humanoid: Humanoid)
+	local character = humanoid.Parent
+	if not character or not character:IsA("Model") then
+		return
+	end
+	local ragdollConstraints = character:FindFirstChild("RagdollConstraints")
+	if ragdollConstraints then
+		for _, constraint in pairs(ragdollConstraints:GetChildren()) do
+			if constraint:IsA("Constraint") then
+				local rigidPointer = constraint:FindFirstChild("RigidJoint")
+				local rigidJoint = rigidPointer and rigidPointer:IsA("ObjectValue") and rigidPointer.Value
+				if rigidJoint and rigidJoint:IsA("Motor6D") then
+					if rigidJoint.Part1 ~= nil then
+						rigidJoint.Part1 = nil
+					end
+				end
+			end
+		end
+	end
+end
+
+--[[ True if any ragdoll Motor6D is still welded (embedded AI/scripts reconnected Part1 after physics). ]]
+function module:AnyRagdollMotorWelded(humanoid: Humanoid): boolean
+	local character = humanoid.Parent
+	if not character or not character:IsA("Model") then
+		return false
+	end
+	local ragdollConstraints = character:FindFirstChild("RagdollConstraints")
+	if not ragdollConstraints then
+		return false
+	end
+	for _, constraint in pairs(ragdollConstraints:GetChildren()) do
+		if constraint:IsA("Constraint") then
+			local rigidPointer = constraint:FindFirstChild("RigidJoint")
+			local rigidJoint = rigidPointer and rigidPointer:IsA("ObjectValue") and rigidPointer.Value
+			if rigidJoint and rigidJoint:IsA("Motor6D") and rigidJoint.Part1 ~= nil then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+--[[ After physics: only disconnect constraint motors + keep Humanoid in Physics (no full descendant scan). ]]
+function module:MaintainNpcRagdollAfterPhysics(humanoid: Humanoid)
+	local character = humanoid.Parent
+	if not character or not character:IsA("Model") then
+		return
+	end
+	if character:GetAttribute("Ragdolled") ~= true or humanoid.Health <= 0 then
+		return
+	end
+	local st = humanoid:GetState()
+	if st ~= Enum.HumanoidStateType.Physics and st ~= Enum.HumanoidStateType.Dead then
+		pcall(function()
+			humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+		end)
+	end
+	humanoid.PlatformStand = false
+	humanoid.RequiresNeck = false
+	keepRagdollActiveLightweight(humanoid)
+end
+
+function module:ManualRagdoll(humanoid: Humanoid, isEnabled: boolean)
+	if isEnabled then
+		-- Prevent instant death when neck Motor6D is temporarily disconnected.
+		humanoid.RequiresNeck = false
+		humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+	else
+		humanoid.RequiresNeck = true
+		humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+	end
+	setRagdollEnabled(humanoid, isEnabled, nil)
+end
+
+--[[
+	While Ragdolled status is active, collisions/state can still kick the Humanoid out of Physics.
+	Call from Heartbeat — skips velocity clamp so we don't damp the ragdoll every frame.
+]]
+function module:MaintainStatusRagdoll(humanoid: Humanoid)
+	local character = humanoid.Parent
+	if not character or not character:IsA("Model") then
+		return
+	end
+	if character:GetAttribute("Ragdolled") ~= true or humanoid.Health <= 0 then
+		return
+	end
+	local st = humanoid:GetState()
+	if st ~= Enum.HumanoidStateType.Physics and st ~= Enum.HumanoidStateType.Dead then
+		pcall(function()
+			humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+		end)
+	end
+	humanoid.PlatformStand = false
+	humanoid.RequiresNeck = false
+	keepRagdollActiveLightweight(humanoid)
+end
+
+--[[
+	NPCs: embedded server Scripts / Animator can re-weld Motor6Ds after physics. Re-apply full ragdoll
+	collision + joint disconnect (skip velocity clamp). Call after physics / deferred.
+]]
+function module:MaintainNpcRagdollHard(humanoid: Humanoid)
+	local character = humanoid.Parent
+	if not character or not character:IsA("Model") then
+		return
+	end
+	if character:GetAttribute("Ragdolled") ~= true or humanoid.Health <= 0 then
+		return
+	end
+	local st = humanoid:GetState()
+	if st ~= Enum.HumanoidStateType.Physics and st ~= Enum.HumanoidStateType.Dead then
+		pcall(function()
+			humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+		end)
+	end
+	humanoid.PlatformStand = false
+	humanoid.RequiresNeck = false
+	setRagdollEnabled(humanoid, true, { skipVelocityClamp = true })
+end
+
+function module:ragdollAdded(humanoid: Humanoid)
+	if not humanoid then
+		return
+	end
+	ensureRagdollCollisionGroup()
+	-- Do NOT use Humanoid.StateChanged to drive ragdoll on/off: contact/state churn calls it with
+	-- non-Physics states and was disabling constraint ragdoll while Ragdolled stayed true.
+end
+
+function module:ragdollRemoved(humanoid: Humanoid)
+	-- kept for API symmetry
+end
+
+return module
+]]></string>
+        </Properties>
+        <Item class="ModuleScript" referent="10">
+          <Properties>
+            <string name="Name">buildCollisionFilters</string>
+            <string name="Source"><![CDATA[return function(attachmentMap, characterRoot: BasePart?)
+	local folder = Instance.new("Folder")
+	folder.Name = "NoCollisionConstraints"
+	if not characterRoot then
+		return folder
+	end
+
+	local seen = {}
+	local function pairKey(a: BasePart, b: BasePart): string
+		local aPath = a:GetFullName()
+		local bPath = b:GetFullName()
+		if aPath < bPath then
+			return aPath .. "|" .. bPath
+		end
+		return bPath .. "|" .. aPath
+	end
+	for _, jointData in pairs(attachmentMap) do
+		local p0 = jointData.Attachment0 and jointData.Attachment0.Parent
+		local p1 = jointData.Attachment1 and jointData.Attachment1.Parent
+		if p0 and p1 and p0:IsA("BasePart") and p1:IsA("BasePart") and p0 ~= p1 then
+			local key = pairKey(p0, p1)
+			if not seen[key] then
+				seen[key] = true
+				local ncc = Instance.new("NoCollisionConstraint")
+				ncc.Name = p0.Name .. "<->" .. p1.Name
+				ncc.Part0 = p0
+				ncc.Part1 = p1
+				ncc.Parent = folder
+			end
+		end
+	end
+
+	return folder
+end
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="11">
+          <Properties>
+            <string name="Name">buildConstraints</string>
+            <string name="Source"><![CDATA[local getLastWordFromPascalCase = require(script.Parent:WaitForChild("getLastWordFromPascalCase"))
+
+local function makeHinge(lower: number, upper: number, restitution: number): HingeConstraint
+	local h = Instance.new("HingeConstraint")
+	h.LimitsEnabled = true
+	h.LowerAngle = lower
+	h.UpperAngle = upper
+	h.Restitution = restitution
+	h.Radius = 0.15
+	return h
+end
+
+local function makeBall(upper: number, twistLower: number, twistUpper: number): BallSocketConstraint
+	local b = Instance.new("BallSocketConstraint")
+	b.LimitsEnabled = true
+	b.TwistLimitsEnabled = true
+	b.UpperAngle = upper
+	b.TwistLowerAngle = twistLower
+	b.TwistUpperAngle = twistUpper
+	return b
+end
+
+local function constraintTemplateForJoint(jointName: string): Constraint
+	local jointType = getLastWordFromPascalCase(jointName)
+	if jointType == "Ankle" then
+		return makeHinge(-45, 0, 0)
+	elseif jointType == "Elbow" then
+		return makeHinge(0, 135, 0)
+	elseif jointType == "Knee" then
+		return makeHinge(-135, -10, 0)
+	elseif jointType == "Wrist" then
+		return makeHinge(-20, 20, 0)
+	elseif jointType == "Hip" then
+		return makeBall(40, -3, 3)
+	elseif jointType == "Neck" then
+		return makeBall(0, -45, 45)
+	elseif jointType == "Shoulder" then
+		return makeBall(30, -30, 30)
+	elseif jointType == "Waist" then
+		return makeBall(15, -1, 1)
+	end
+	return makeBall(20, -15, 15)
+end
+
+local function createConstraint(jointData)
+	local joint = jointData.Joint
+	local constraint = constraintTemplateForJoint(joint.Name)
+	constraint.Attachment0 = jointData.Attachment0
+	constraint.Attachment1 = jointData.Attachment1
+	constraint.Name = getLastWordFromPascalCase(joint.Name) .. "RagdollConstraint"
+
+	local rigidPointer = Instance.new("ObjectValue")
+	rigidPointer.Name = "RigidJoint"
+	rigidPointer.Value = joint
+	rigidPointer.Parent = constraint
+	return constraint
+end
+
+return function(attachmentMap)
+	local ragdollConstraints = Instance.new("Folder")
+	ragdollConstraints.Name = "RagdollConstraints"
+
+	for _, jointData in pairs(attachmentMap) do
+		if jointData.Joint.Name ~= "Root" then
+			createConstraint(jointData).Parent = ragdollConstraints
+		end
+	end
+	return ragdollConstraints
+end
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="12">
+          <Properties>
+            <string name="Name">buildRagdoll</string>
+            <string name="Source"><![CDATA[local buildConstraints = require(script.Parent:WaitForChild("buildConstraints"))
+local buildCollisionFilters = require(script.Parent:WaitForChild("buildCollisionFilters"))
+local AUTO_ATTACHMENT_PREFIX = "__RagdollAutoAttachment_"
+
+local function clearAutoAttachments(character: Model)
+	for _, inst in ipairs(character:GetDescendants()) do
+		if inst:IsA("Attachment") and string.sub(inst.Name, 1, #AUTO_ATTACHMENT_PREFIX) == AUTO_ATTACHMENT_PREFIX then
+			inst:Destroy()
+		end
+	end
+end
+
+local function buildAttachmentMap(character: Model)
+	local attachmentMap = {}
+	local handledJoints: { [Motor6D]: boolean } = {}
+
+	for _, part in pairs(character:GetDescendants()) do
+		if part:IsA("BasePart") then
+			for _, attachment in pairs(part:GetChildren()) do
+				if attachment:IsA("Attachment") then
+					local jointName = attachment.Name:match("^(.+)RigAttachment$")
+					local joint = jointName and attachment.Parent:FindFirstChild(jointName) or nil
+					if joint and joint:IsA("Motor6D") and joint.Part0 and joint.Part1 then
+						local a0 = joint.Part0:FindFirstChild(attachment.Name)
+						local a1 = joint.Part1:FindFirstChild(attachment.Name)
+						if a0 and a1 and a0:IsA("Attachment") and a1:IsA("Attachment") then
+							attachmentMap[attachment.Name] = {
+								Joint = joint,
+								Attachment0 = a0,
+								Attachment1 = a1,
+							}
+							handledJoints[joint] = true
+						end
+					end
+				end
+			end
+		end
+	end
+
+	-- Fallback for NPC/custom rigs without RigAttachments: synthesize attachments from Motor6D C0/C1.
+	for _, inst in ipairs(character:GetDescendants()) do
+		if inst:IsA("Motor6D") and inst.Part0 and inst.Part1 and not handledJoints[inst] then
+			local key = AUTO_ATTACHMENT_PREFIX .. inst:GetFullName()
+			local a0Name = AUTO_ATTACHMENT_PREFIX .. inst.Name
+			local a1Name = AUTO_ATTACHMENT_PREFIX .. inst.Name
+
+			local a0 = inst.Part0:FindFirstChild(a0Name)
+			if not (a0 and a0:IsA("Attachment")) then
+				a0 = Instance.new("Attachment")
+				a0.Name = a0Name
+				a0.Parent = inst.Part0
+			end
+			a0.CFrame = inst.C0
+
+			local a1 = inst.Part1:FindFirstChild(a1Name)
+			if not (a1 and a1:IsA("Attachment")) then
+				a1 = Instance.new("Attachment")
+				a1.Name = a1Name
+				a1.Parent = inst.Part1
+			end
+			a1.CFrame = inst.C1
+
+			attachmentMap[key] = {
+				Joint = inst,
+				Attachment0 = a0,
+				Attachment1 = a1,
+			}
+		end
+	end
+	return attachmentMap
+end
+
+return function(humanoid: Humanoid)
+	local character = humanoid.Parent
+	if not character or not character:IsA("Model") then
+		return
+	end
+
+	humanoid.BreakJointsOnDeath = false
+
+	local old = character:FindFirstChild("RagdollConstraints")
+	if old then
+		old:Destroy()
+	end
+	clearAutoAttachments(character)
+
+	local attachmentMap = buildAttachmentMap(character)
+	local ragdollConstraints = buildConstraints(attachmentMap)
+	local collisionFilters = buildCollisionFilters(attachmentMap, character.PrimaryPart)
+	collisionFilters.Parent = ragdollConstraints
+	ragdollConstraints.Parent = character
+end
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="13">
+          <Properties>
+            <string name="Name">getLastWordFromPascalCase</string>
+            <string name="Source"><![CDATA[local function getLastWordFromPascalCase(value: string): string
+	local words = {}
+	for word in string.gmatch(value, "%u[%l%d]*") do
+		table.insert(words, word)
+	end
+	if #words == 0 then
+		return value
+	end
+	return words[#words]
+end
+
+return getLastWordFromPascalCase
+]]></string>
+          </Properties>
+        </Item>
+      </Item>
+      <Item class="Script" referent="14">
+        <Properties>
+          <string name="Name">RagdollService</string>
+          <token name="RunContext">0</token>
+          <string name="Source"><![CDATA[--[[
+	Living "Ragdolled" status (abilities, TK, Crystal, etc.) drives the constraint ragdoll.
+	On death, main.server sets Ragdolled = true with BreakJointsOnDeath = false — we apply the same
+	physics ragdoll once so the body collapses instead of staying in T-pose.
+]]
+
+local CollectionService = game:GetService("CollectionService")
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+
+local ragdollHandlerFolder = script.Parent:WaitForChild("RagdollHandler")
+local BuildRagdoll = require(ragdollHandlerFolder:WaitForChild("buildRagdoll"))
+local RagdollHandler = require(ragdollHandlerFolder)
+
+local ragdollVisualLast: { [Model]: boolean? } = {}
+local ragdollAttrConns: { [Model]: RBXScriptConnection } = {}
+local npcDescendantScriptConns: { [Model]: RBXScriptConnection } = {}
+local npcLastAnimatorStop: { [Model]: number } = {}
+
+local SCRIPT_WAS_ENABLED_ATTR = "RagdollNpcScriptWasEnabled"
+local NPC_ANIMATOR_STOP_INTERVAL = 0.4
+
+local function stopNpcAnimatorTracks(humanoid: Humanoid)
+	local animator = humanoid:FindFirstChildOfClass("Animator")
+	if not animator then
+		return
+	end
+	for _, track in animator:GetPlayingAnimationTracks() do
+		pcall(function()
+			track:Stop(0)
+		end)
+	end
+end
+
+-- NPC models often include server Scripts that reset Motor6D / pose on contact; suspend while Ragdolled.
+local function suspendNpcServerScripts(character: Model)
+	for _, d in ipairs(character:GetDescendants()) do
+		if d:IsA("Script") and d:GetAttribute("RagdollNeverSuspend") ~= true then
+			if d:GetAttribute(SCRIPT_WAS_ENABLED_ATTR) == nil then
+				d:SetAttribute(SCRIPT_WAS_ENABLED_ATTR, d.Enabled)
+				d.Enabled = false
+			end
+		end
+	end
+end
+
+local function resumeNpcServerScripts(character: Model)
+	if not character.Parent then
+		return
+	end
+	for _, d in ipairs(character:GetDescendants()) do
+		if d:IsA("Script") then
+			local was = d:GetAttribute(SCRIPT_WAS_ENABLED_ATTR)
+			if typeof(was) == "boolean" then
+				d.Enabled = was
+				d:SetAttribute(SCRIPT_WAS_ENABLED_ATTR, nil)
+			end
+		end
+	end
+end
+
+local function suspendOneNpcScriptIfNeeded(scriptInst: Script)
+	if scriptInst:GetAttribute("RagdollNeverSuspend") == true then
+		return
+	end
+	if scriptInst:GetAttribute(SCRIPT_WAS_ENABLED_ATTR) ~= nil then
+		return
+	end
+	scriptInst:SetAttribute(SCRIPT_WAS_ENABLED_ATTR, scriptInst.Enabled)
+	scriptInst.Enabled = false
+end
+
+-- Catch scripts spawned after ragdoll starts (no full GetDescendants every frame).
+local function startNpcScriptDescendantWatcher(character: Model)
+	if npcDescendantScriptConns[character] then
+		return
+	end
+	npcDescendantScriptConns[character] = character.DescendantAdded:Connect(function(inst)
+		if character:GetAttribute("Ragdolled") ~= true then
+			return
+		end
+		if inst:IsA("Script") then
+			suspendOneNpcScriptIfNeeded(inst)
+		end
+	end)
+end
+
+local function stopNpcScriptDescendantWatcher(character: Model)
+	local c = npcDescendantScriptConns[character]
+	if c then
+		c:Disconnect()
+		npcDescendantScriptConns[character] = nil
+	end
+end
+
+local function setServerOwnership(character: Model, owner: Player?)
+	for _, d in ipairs(character:GetDescendants()) do
+		if d:IsA("BasePart") then
+			pcall(function()
+				d:SetNetworkOwner(owner)
+			end)
+		end
+	end
+end
+
+local function ensureRagdollBuilt(humanoid: Humanoid)
+	local character = humanoid.Parent
+	if not character or not character:IsA("Model") then
+		return
+	end
+	if character:FindFirstChild("RagdollConstraints") then
+		return
+	end
+	BuildRagdoll(humanoid)
+	RagdollHandler:ragdollAdded(humanoid)
+end
+
+local function syncPhysicsRagdollFromRagdolledAttribute(character: Model)
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not humanoid then
+		return
+	end
+
+	local want = character:GetAttribute("Ragdolled") == true
+	-- No work when dead and not marked ragdolled (corpse cleanup / unrelated attribute churn).
+	if humanoid.Health <= 0 and not want then
+		return
+	end
+	if ragdollVisualLast[character] == want then
+		return
+	end
+	ragdollVisualLast[character] = want
+
+	ensureRagdollBuilt(humanoid)
+
+	if want then
+		local plr = Players:GetPlayerFromCharacter(character)
+		if plr then
+			setServerOwnership(character, nil)
+		else
+			suspendNpcServerScripts(character)
+			startNpcScriptDescendantWatcher(character)
+			stopNpcAnimatorTracks(humanoid)
+			npcLastAnimatorStop[character] = nil
+			-- Humanoid can leave Physics / try to stand on limb contact; block until Ragdolled clears.
+			pcall(function()
+				humanoid:SetStateEnabled(Enum.HumanoidStateType.GettingUp, false)
+			end)
+		end
+		RagdollHandler:ManualRagdoll(humanoid, true)
+	else
+		RagdollHandler:ManualRagdoll(humanoid, false)
+		local plr = Players:GetPlayerFromCharacter(character)
+		if plr then
+			setServerOwnership(character, plr)
+		else
+			stopNpcScriptDescendantWatcher(character)
+			resumeNpcServerScripts(character)
+			npcLastAnimatorStop[character] = nil
+			pcall(function()
+				humanoid:SetStateEnabled(Enum.HumanoidStateType.GettingUp, true)
+			end)
+		end
+	end
+end
+
+local function bindRagdolledAttributeSync(character: Model)
+	if ragdollAttrConns[character] then
+		ragdollAttrConns[character]:Disconnect()
+		ragdollAttrConns[character] = nil
+	end
+	ragdollAttrConns[character] = character:GetAttributeChangedSignal("Ragdolled"):Connect(function()
+		syncPhysicsRagdollFromRagdolledAttribute(character)
+	end)
+	syncPhysicsRagdollFromRagdolledAttribute(character)
+end
+
+local function disconnectRagdoll(character: Model)
+	stopNpcScriptDescendantWatcher(character)
+	resumeNpcServerScripts(character)
+	npcLastAnimatorStop[character] = nil
+	local conn = ragdollAttrConns[character]
+	if conn then
+		conn:Disconnect()
+		ragdollAttrConns[character] = nil
+	end
+	ragdollVisualLast[character] = nil
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if humanoid and Players:GetPlayerFromCharacter(character) == nil then
+		pcall(function()
+			humanoid:SetStateEnabled(Enum.HumanoidStateType.GettingUp, true)
+		end)
+	end
+	if humanoid then
+		RagdollHandler:ragdollRemoved(humanoid)
+	end
+end
+
+local function setupRagdoll(character: Model)
+	if ragdollAttrConns[character] then
+		return
+	end
+	local humanoid = character:FindFirstChildOfClass("Humanoid") or character:WaitForChild("Humanoid", 5)
+	if not humanoid then
+		return
+	end
+	BuildRagdoll(humanoid)
+	RagdollHandler:ragdollAdded(humanoid)
+	bindRagdolledAttributeSync(character)
+	humanoid.Died:Connect(function()
+		character:SetAttribute("Ragdolled", true)
+	end)
+	character.Destroying:Once(function()
+		disconnectRagdoll(character)
+	end)
+end
+
+local function bindPlayerRagdoll(player: Player)
+	player.CharacterAdded:Connect(function(character)
+		setupRagdoll(character)
+	end)
+	player.CharacterRemoving:Connect(function(character)
+		disconnectRagdoll(character)
+	end)
+	if player.Character then
+		setupRagdoll(player.Character)
+	end
+end
+
+Players.PlayerAdded:Connect(bindPlayerRagdoll)
+for _, player in ipairs(Players:GetPlayers()) do
+	bindPlayerRagdoll(player)
+end
+
+-- NPCs / non-player models in Workspace that receive Ragdolled from abilities
+local function trySetupWorkspaceCharacter(model: Model)
+	if Players:GetPlayerFromCharacter(model) then
+		return
+	end
+	setupRagdoll(model)
+end
+
+for _, inst in ipairs(Workspace:GetDescendants()) do
+	if inst:IsA("Humanoid") then
+		local parent = inst.Parent
+		if parent and parent:IsA("Model") then
+			trySetupWorkspaceCharacter(parent)
+		end
+	end
+end
+
+Workspace.DescendantAdded:Connect(function(inst)
+	if inst:IsA("Humanoid") then
+		local parent = inst.Parent
+		if parent and parent:IsA("Model") then
+			trySetupWorkspaceCharacter(parent)
+		end
+	end
+end)
+
+for _, character in ipairs(CollectionService:GetTagged("TestCharacter")) do
+	if character:IsA("Model") then
+		setupRagdoll(character)
+	end
+end
+
+CollectionService:GetInstanceAddedSignal("TestCharacter"):Connect(function(character)
+	if character:IsA("Model") then
+		setupRagdoll(character)
+	end
+end)
+
+local postSimOk, postSimEvent = pcall(function()
+	return (RunService :: any).PostSimulation
+end)
+
+RunService.Heartbeat:Connect(function()
+	for character, _ in pairs(ragdollAttrConns) do
+		if not character.Parent then
+			continue
+		end
+		if character:GetAttribute("Ragdolled") ~= true then
+			continue
+		end
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		if not humanoid or not humanoid.Parent or humanoid.Health <= 0 then
+			continue
+		end
+		-- NPCs: lightweight maintain runs on PostSimulation (after physics). Heartbeat here would duplicate work and miss touch re-welds.
+		if postSimOk and postSimEvent and Players:GetPlayerFromCharacter(character) == nil then
+			continue
+		end
+		RagdollHandler:MaintainStatusRagdoll(humanoid)
+	end
+end)
+
+-- NPCs: dedicated simplified ragdoll mode. Keep joints disconnected + Physics every step.
+if postSimOk and postSimEvent then
+	postSimEvent:Connect(function()
+		local now = tick()
+		for character, _ in pairs(ragdollAttrConns) do
+			if not character.Parent then
+				continue
+			end
+			if Players:GetPlayerFromCharacter(character) ~= nil then
+				continue
+			end
+			if character:GetAttribute("Ragdolled") ~= true then
+				continue
+			end
+			local humanoid = character:FindFirstChildOfClass("Humanoid")
+			if not humanoid or not humanoid.Parent or humanoid.Health <= 0 then
+				continue
+			end
+			RagdollHandler:MaintainNpcRagdollAfterPhysics(humanoid)
+
+			local lastAnim = npcLastAnimatorStop[character]
+			if lastAnim == nil or now - lastAnim >= NPC_ANIMATOR_STOP_INTERVAL then
+				npcLastAnimatorStop[character] = now
+				stopNpcAnimatorTracks(humanoid)
+			end
+		end
+	end)
+end
+]]></string>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+  <Item class="SoundService" referent="15">
+    <Properties>
+      <string name="Name">SoundService</string>
+      <bool name="RespectFilteringEnabled">true</bool>
+    </Properties>
+  </Item>
+  <Item class="StarterPlayer" referent="16">
+    <Properties>
+      <string name="Name">StarterPlayer</string>
+    </Properties>
+    <Item class="StarterPlayerScripts" referent="17">
+      <Properties>
+        <string name="Name">StarterPlayerScripts</string>
+      </Properties>
+      <Item class="LocalScript" referent="18">
+        <Properties>
+          <string name="Name">Client</string>
+          <string name="Source"><![CDATA[print("Hello world, from client!")
+]]></string>
+        </Properties>
+        <Item class="LocalScript" referent="19">
+          <Properties>
+            <string name="Name">CharacterSelect</string>
+            <string name="Source"><![CDATA[local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local TextChatService = game:GetService("TextChatService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+local shared = ReplicatedStorage:WaitForChild("Shared", 30)
+if not shared then
+	warn("[CharacterSelect] ReplicatedStorage.Shared missing.")
+	return
+end
+
+local characterConfigModule = shared:WaitForChild("CharacterConfig", 10)
+local ok, CharacterConfig = pcall(require, characterConfigModule)
+if not ok or type(CharacterConfig) ~= "table" then
+	warn("[CharacterSelect] Failed to require CharacterConfig.")
+	return
+end
+
+local remotesFolder = ReplicatedStorage:WaitForChild(CharacterConfig.RemotesFolderName, 30)
+if not remotesFolder then
+	warn("[CharacterSelect] Character remotes folder missing.")
+	return
+end
+
+local selectRemote = remotesFolder:WaitForChild(CharacterConfig.SelectionRemoteName, 10)
+if not selectRemote or not selectRemote:IsA("RemoteEvent") then
+	warn("[CharacterSelect] Selection remote missing.")
+	return
+end
+
+local powerCastRemote = remotesFolder:WaitForChild(CharacterConfig.PowerCastRemoteName, 10)
+if not powerCastRemote or not powerCastRemote:IsA("RemoteEvent") then
+	warn("[CharacterSelect] PowerCast remote missing.")
+	return
+end
+local powerCastRemoteEvent = powerCastRemote :: RemoteEvent
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "CharmedCharacterUI"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = playerGui
+
+local chooserFrame = Instance.new("Frame")
+chooserFrame.Name = "ChooserFrame"
+chooserFrame.AnchorPoint = Vector2.new(1, 1)
+chooserFrame.Position = UDim2.new(0.985, 0, 0.98, 0)
+chooserFrame.Size = UDim2.new(0.34, 0, 0.08, 0)
+chooserFrame.BackgroundTransparency = 1
+chooserFrame.BorderSizePixel = 0
+chooserFrame.Parent = screenGui
+
+local buttonsFrame = Instance.new("Frame")
+buttonsFrame.BackgroundTransparency = 1
+buttonsFrame.Size = UDim2.new(1, 0, 1, 0)
+buttonsFrame.Position = UDim2.new(0, 0, 0, 0)
+buttonsFrame.Parent = chooserFrame
+
+local grid = Instance.new("UIGridLayout")
+grid.CellSize = UDim2.new(0.24, 0, 0.88, 0)
+grid.CellPadding = UDim2.new(0.01, 0, 0, 0)
+grid.FillDirectionMaxCells = 4
+grid.Parent = buttonsFrame
+
+local statsFrame = Instance.new("Frame")
+statsFrame.Name = "StatsFrame"
+statsFrame.AnchorPoint = Vector2.new(0, 1)
+statsFrame.Position = UDim2.new(0.015, 0, 0.98, 0)
+statsFrame.Size = UDim2.new(0.2, 0, 0.1, 0)
+statsFrame.BackgroundColor3 = Color3.fromRGB(10, 12, 17)
+statsFrame.BackgroundTransparency = 1
+statsFrame.BorderSizePixel = 0
+statsFrame.Visible = false
+statsFrame.Parent = screenGui
+
+local function createBar(yScale: number, fillColor: Color3): (Frame, TextLabel)
+	local bar = Instance.new("Frame")
+	bar.AnchorPoint = Vector2.new(0, 0.5)
+	bar.Size = UDim2.new(1, 0, 0.5, 0)
+	bar.Position = UDim2.new(0, 0, yScale, 0)
+	bar.BackgroundColor3 = fillColor
+	bar.BorderSizePixel = 0
+	bar.Parent = statsFrame
+
+	local barCorner = Instance.new("UICorner")
+	barCorner.CornerRadius = UDim.new(0, 6)
+	barCorner.Parent = bar
+
+	local text = Instance.new("TextLabel")
+	text.BackgroundTransparency = 1
+	text.Size = UDim2.fromScale(1, 1)
+	text.Font = Enum.Font.GothamBold
+	text.TextSize = 10
+	text.TextColor3 = Color3.fromRGB(245, 245, 245)
+	text.Text = ""
+	text.Parent = bar
+
+	return bar, text
+end
+
+local healthFill, healthLabel = createBar(0.2, Color3.fromRGB(74, 197, 94))
+local energyFill, energyLabel = createBar(0.6, Color3.fromRGB(153, 96, 255))
+
+local powerFrame = Instance.new("Frame")
+powerFrame.Name = "PowerFrame"
+powerFrame.AnchorPoint = Vector2.new(0, 0.5)
+powerFrame.Position = UDim2.new(0.015, 0, 0.5, 0)
+powerFrame.Size = UDim2.new(0.12, 0, 0.55, 0)
+powerFrame.BackgroundTransparency = 1
+powerFrame.Visible = false
+powerFrame.Parent = screenGui
+
+local powerLayout = Instance.new("UIListLayout")
+powerLayout.FillDirection = Enum.FillDirection.Vertical
+powerLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+powerLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+powerLayout.Padding = UDim.new(0, 8)
+powerLayout.Parent = powerFrame
+
+local spellsButton = Instance.new("TextButton")
+spellsButton.Name = "SpellsButton"
+spellsButton.AnchorPoint = Vector2.new(0, 0)
+spellsButton.Position = UDim2.new(0.012, 0, 0.055, 0)
+spellsButton.Size = UDim2.new(0.085, 0, 0.045, 0)
+spellsButton.BackgroundColor3 = Color3.fromRGB(18, 23, 36)
+spellsButton.Text = "Spells"
+spellsButton.Font = Enum.Font.GothamBold
+spellsButton.TextSize = 13
+spellsButton.TextColor3 = Color3.fromRGB(222, 232, 248)
+spellsButton.BorderSizePixel = 0
+spellsButton.Parent = screenGui
+
+local spellsCorner = Instance.new("UICorner")
+spellsCorner.CornerRadius = UDim.new(0, 8)
+spellsCorner.Parent = spellsButton
+
+local spellsFrame = Instance.new("Frame")
+spellsFrame.Name = "SpellsFrame"
+spellsFrame.AnchorPoint = Vector2.new(0, 0)
+spellsFrame.Position = UDim2.new(0.012, 0, 0.105, 0)
+spellsFrame.Size = UDim2.new(0.26, 0, 0.16, 0)
+spellsFrame.BackgroundColor3 = Color3.fromRGB(9, 12, 22)
+spellsFrame.BackgroundTransparency = 0.05
+spellsFrame.BorderSizePixel = 0
+spellsFrame.Visible = false
+spellsFrame.Parent = screenGui
+
+local spellsCorner2 = Instance.new("UICorner")
+spellsCorner2.CornerRadius = UDim.new(0, 10)
+spellsCorner2.Parent = spellsFrame
+
+local spellsStroke = Instance.new("UIStroke")
+spellsStroke.Thickness = 1.5
+spellsStroke.Color = Color3.fromRGB(81, 97, 130)
+spellsStroke.Parent = spellsFrame
+
+local spellsLayout = Instance.new("UIListLayout")
+spellsLayout.FillDirection = Enum.FillDirection.Vertical
+spellsLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+spellsLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+spellsLayout.Padding = UDim.new(0, 6)
+spellsLayout.Parent = spellsFrame
+
+local spellsTitle = Instance.new("TextLabel")
+spellsTitle.BackgroundTransparency = 1
+spellsTitle.Size = UDim2.new(1, -12, 0, 24)
+spellsTitle.Position = UDim2.new(0, 6, 0, 4)
+spellsTitle.Font = Enum.Font.GothamSemibold
+spellsTitle.TextSize = 16
+spellsTitle.TextXAlignment = Enum.TextXAlignment.Left
+spellsTitle.TextColor3 = Color3.fromRGB(235, 240, 255)
+spellsTitle.Text = "Spells"
+spellsTitle.Parent = spellsFrame
+
+local spellsPadding = Instance.new("UIPadding")
+spellsPadding.PaddingTop = UDim.new(0, 6)
+spellsPadding.PaddingLeft = UDim.new(0, 6)
+spellsPadding.PaddingRight = UDim.new(0, 6)
+spellsPadding.PaddingBottom = UDim.new(0, 6)
+spellsPadding.Parent = spellsFrame
+
+local function prefillChatPlaceholder(text: string)
+	local config = TextChatService:FindFirstChild("ChatInputBarConfiguration")
+	if not config then
+		return
+	end
+	pcall(function()
+		(config :: any).PlaceholderText = text
+	end)
+end
+
+local selectedCharacter: string? = nil
+local humanoidConn: RBXScriptConnection? = nil
+local energyConn: RBXScriptConnection? = nil
+local mouse = player:GetMouse()
+local levitationControlLoopRunning = false
+local powerButtons: { TextButton } = {}
+local powerButtonById: { [string]: TextButton } = {}
+local cooldownOverlayById: { [string]: Frame } = {}
+local cooldownLabelById: { [string]: TextLabel } = {}
+local activeAbilities: { [string]: boolean } = {}
+local keybindByPowerId: { [string]: Enum.KeyCode } = {}
+local powerByKeyCode: { [Enum.KeyCode]: { Id: string, Name: string } } = {}
+local keybindOverrideByPowerId: { [string]: Enum.KeyCode } = {
+	telekinetic_deviation = Enum.KeyCode.Q,
+	telekinesis = Enum.KeyCode.E,
+}
+local keybindOrder: { Enum.KeyCode } = {
+	Enum.KeyCode.Q,
+	Enum.KeyCode.E,
+	Enum.KeyCode.R,
+	Enum.KeyCode.F,
+	Enum.KeyCode.T,
+}
+local startTelekinesisHold: () -> ()
+local stopTelekinesisHold: () -> ()
+
+local SPELL_DEFINITIONS = {
+	{
+		name = "Power of Three",
+		text = "The power of three will set us free.",
+	},
+	{
+		name = "Return to Sender",
+		text = "Let the object of objection become but a dream, as I cause the scene to be no more than it seems.",
+	},
+	{
+		name = "Binding",
+		text = "I bind thee from doing harm, harm against others and harm against yourself.",
+	},
+}
+
+local function keyCodeToText(code: Enum.KeyCode): string
+	return code.Name
+end
+
+local function clearPowerButtons()
+	for _, button in powerButtons do
+		button:Destroy()
+	end
+	table.clear(powerButtons)
+	table.clear(powerButtonById)
+	table.clear(cooldownOverlayById)
+	table.clear(cooldownLabelById)
+	table.clear(activeAbilities)
+	table.clear(keybindByPowerId)
+	table.clear(powerByKeyCode)
+end
+
+local function setAbilityButtonActive(powerId: string, isActive: boolean)
+	activeAbilities[powerId] = isActive
+	local button = powerButtonById[powerId]
+	if button then
+		button.BackgroundColor3 = if isActive then Color3.fromRGB(56, 86, 146) else Color3.fromRGB(18, 23, 36)
+	end
+	if powerId == "levitation" and isActive and not levitationControlLoopRunning then
+		levitationControlLoopRunning = true
+		task.spawn(function()
+			while levitationControlLoopRunning do
+				if not activeAbilities.levitation then
+					break
+				end
+				local character = player.Character
+				local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+				local camera = Workspace.CurrentCamera
+				if humanoid and camera then
+					powerCastRemoteEvent:FireServer("levitation", nil, humanoid.MoveDirection, "update", camera.CFrame.LookVector)
+				end
+				task.wait(0.06)
+			end
+			levitationControlLoopRunning = false
+		end)
+	elseif powerId == "levitation" and not isActive then
+		levitationControlLoopRunning = false
+	end
+end
+
+local function startCooldownVisual(powerId: string, cooldownSeconds: number)
+	local overlay = cooldownOverlayById[powerId]
+	local label = cooldownLabelById[powerId]
+	if not overlay or not label then
+		return
+	end
+	if cooldownSeconds <= 0 then
+		overlay.Visible = false
+		label.Text = ""
+		return
+	end
+
+	overlay.Visible = true
+	local startedAt = os.clock()
+	task.spawn(function()
+		while overlay.Parent do
+			local elapsed = os.clock() - startedAt
+			local left = math.max(cooldownSeconds - elapsed, 0)
+			local ratio = left / cooldownSeconds
+			overlay.AnchorPoint = Vector2.new(0, 0)
+			overlay.Position = UDim2.new(0, 0, 0, 0)
+			overlay.Size = UDim2.new(ratio, 0, 1, 0)
+			label.Text = if left > 0 then string.format("%.1f", left) else ""
+			if left <= 0 then
+				overlay.Visible = false
+				break
+			end
+			task.wait(0.05)
+		end
+	end)
+end
+
+local function buildPowerButtons(characterName: string)
+	clearPowerButtons()
+	local powers = CharacterConfig.PowersByCharacter[characterName]
+	if type(powers) ~= "table" then
+		powerFrame.Visible = false
+		return
+	end
+
+	local usedKeys: { [Enum.KeyCode]: boolean } = {}
+	for index, power in powers do
+		local button = Instance.new("TextButton")
+		button.Size = UDim2.new(1, 0, 0.14, 0)
+		button.BackgroundColor3 = Color3.fromRGB(18, 23, 36)
+		button.BorderSizePixel = 0
+		button.Text = power.Name
+		button.TextColor3 = Color3.fromRGB(222, 232, 248)
+		button.TextSize = 11
+		button.TextWrapped = true
+		button.Font = Enum.Font.GothamBold
+		button.AutoButtonColor = true
+		button.Parent = powerFrame
+
+		local keyCode = keybindOverrideByPowerId[power.Id]
+		if keyCode then
+			usedKeys[keyCode] = true
+		else
+			for _, candidate in keybindOrder do
+				if not usedKeys[candidate] then
+					keyCode = candidate
+					usedKeys[candidate] = true
+					break
+				end
+			end
+		end
+		if keyCode then
+			keybindByPowerId[power.Id] = keyCode
+			powerByKeyCode[keyCode] = { Id = power.Id, Name = power.Name }
+		end
+		powerButtonById[power.Id] = button
+
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 6)
+		corner.Parent = button
+
+		local stroke = Instance.new("UIStroke")
+		stroke.Color = Color3.fromRGB(85, 106, 140)
+		stroke.Thickness = 1.2
+		stroke.Parent = button
+
+		local overlay = Instance.new("Frame")
+		overlay.Name = "CooldownOverlay"
+		overlay.BackgroundColor3 = Color3.fromRGB(4, 6, 11)
+		overlay.BackgroundTransparency = 0.35
+		overlay.BorderSizePixel = 0
+		overlay.Size = UDim2.new(1, 0, 1, 0)
+		overlay.Position = UDim2.new(0, 0, 0, 0)
+		overlay.Visible = false
+		overlay.ZIndex = button.ZIndex + 1
+		overlay.Parent = button
+
+		local overlayCorner = Instance.new("UICorner")
+		overlayCorner.CornerRadius = UDim.new(0, 6)
+		overlayCorner.Parent = overlay
+
+		local cooldownLabel = Instance.new("TextLabel")
+		cooldownLabel.Name = "CooldownLabel"
+		cooldownLabel.BackgroundTransparency = 1
+		cooldownLabel.Size = UDim2.new(1, 0, 1, 0)
+		cooldownLabel.Position = UDim2.new(0, 0, 0, 0)
+		cooldownLabel.Font = Enum.Font.GothamBold
+		cooldownLabel.TextSize = 13
+		cooldownLabel.TextColor3 = Color3.fromRGB(222, 232, 248)
+		cooldownLabel.Text = ""
+		cooldownLabel.ZIndex = overlay.ZIndex + 1
+		cooldownLabel.Parent = overlay
+		cooldownOverlayById[power.Id] = overlay
+		cooldownLabelById[power.Id] = cooldownLabel
+
+		local keyLabel = Instance.new("TextLabel")
+		keyLabel.BackgroundTransparency = 1
+		keyLabel.Size = UDim2.new(0.2, 0, 0.3, 0)
+		keyLabel.Position = UDim2.new(0.79, 0, 0.03, 0)
+		keyLabel.Font = Enum.Font.Gotham
+		keyLabel.TextSize = 10
+		keyLabel.TextColor3 = Color3.fromRGB(155, 174, 210)
+		keyLabel.TextXAlignment = Enum.TextXAlignment.Center
+		keyLabel.Text = if keyCode then keyCodeToText(keyCode) else ""
+		keyLabel.Parent = button
+
+		button.MouseButton1Click:Connect(function()
+			if power.Id == "telekinesis" then
+				if activeAbilities.telekinesis then
+					stopTelekinesisHold()
+				else
+					startTelekinesisHold()
+				end
+				return
+			end
+			if power.Id == "astral_projection" or power.Id == "molecular_freeze" or power.Id == "premonition" or power.Id == "levitation" or power.Id == "healing" then
+				if activeAbilities[power.Id] then
+					powerCastRemoteEvent:FireServer(power.Id, mouse.Target, mouse.Hit.Position, "stop")
+				else
+					powerCastRemoteEvent:FireServer(power.Id, mouse.Target, mouse.Hit.Position, "start")
+				end
+				return
+			end
+			powerCastRemoteEvent:FireServer(power.Id, mouse.Target, mouse.Hit.Position)
+		end)
+
+		table.insert(powerButtons, button)
+	end
+
+	powerFrame.Visible = #powerButtons > 0
+end
+
+spellsButton.MouseButton1Click:Connect(function()
+	spellsFrame.Visible = not spellsFrame.Visible
+end)
+
+for _, spell in SPELL_DEFINITIONS do
+	local button = Instance.new("TextButton")
+	button.Name = "Spell_" .. spell.name
+	button.AutoButtonColor = true
+	button.BackgroundColor3 = Color3.fromRGB(17, 22, 32)
+	button.BorderSizePixel = 0
+	button.Size = UDim2.new(1, -12, 0, 24)
+	button.TextXAlignment = Enum.TextXAlignment.Left
+	button.Font = Enum.Font.Gotham
+	button.TextSize = 14
+	button.TextColor3 = Color3.fromRGB(220, 225, 240)
+	button.Text = spell.name
+	button.Parent = spellsFrame
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 6)
+	corner.Parent = button
+
+	button.MouseButton1Click:Connect(function()
+		prefillChatPlaceholder(spell.text)
+	end)
+end
+
+local function updateBar(fillFrame: Frame, ratio: number)
+	fillFrame.Size = UDim2.new(math.clamp(ratio, 0, 1), 0, 0.5, 0)
+end
+
+local function updateHealthUi(humanoid: Humanoid)
+	local maxHealth = math.max(humanoid.MaxHealth, 1)
+	local health = math.clamp(humanoid.Health, 0, maxHealth)
+	healthLabel.Text = string.format("HEALTH %d/%d", math.floor(health + 0.5), math.floor(maxHealth + 0.5))
+	updateBar(healthFill, health / maxHealth)
+end
+
+local function updateEnergyUi(energyValue: number)
+	local maxEnergy = math.max(CharacterConfig.DefaultEnergy, 1)
+	local current = math.clamp(energyValue, 0, maxEnergy)
+	energyLabel.Text = string.format("ENERGY %d/%d", math.floor(current + 0.5), maxEnergy)
+	updateBar(energyFill, current / maxEnergy)
+end
+
+local telekinesisActive = false
+
+function startTelekinesisHold()
+	if telekinesisActive then
+		return
+	end
+	telekinesisActive = true
+	setAbilityButtonActive("telekinesis", true)
+	powerCastRemoteEvent:FireServer("telekinesis", mouse.Target, mouse.Hit.Position, "start")
+	task.spawn(function()
+		while telekinesisActive do
+			powerCastRemoteEvent:FireServer("telekinesis", mouse.Target, mouse.Hit.Position, "update")
+			task.wait(0.06)
+		end
+	end)
+end
+
+function stopTelekinesisHold()
+	if not telekinesisActive then
+		return
+	end
+	telekinesisActive = false
+	setAbilityButtonActive("telekinesis", false)
+	powerCastRemoteEvent:FireServer("telekinesis", mouse.Target, mouse.Hit.Position, "stop")
+end
+
+local function hookCharacter(character: Model)
+	if humanoidConn then
+		humanoidConn:Disconnect()
+		humanoidConn = nil
+	end
+	if energyConn then
+		energyConn:Disconnect()
+		energyConn = nil
+	end
+
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not humanoid then
+		return
+	end
+
+	updateHealthUi(humanoid)
+	humanoidConn = humanoid.HealthChanged:Connect(function()
+		updateHealthUi(humanoid)
+	end)
+
+	updateEnergyUi((player:GetAttribute("Energy") or CharacterConfig.DefaultEnergy) :: number)
+	energyConn = player:GetAttributeChangedSignal("Energy"):Connect(function()
+		local energy = player:GetAttribute("Energy")
+		if type(energy) == "number" then
+			updateEnergyUi(energy)
+		end
+	end)
+end
+
+for _, characterName in CharacterConfig.Choices do
+	local button = Instance.new("TextButton")
+	button.Text = characterName
+	button.Font = Enum.Font.GothamBold
+	button.TextSize = 20
+	button.TextColor3 = Color3.fromRGB(255, 255, 255)
+	button.BackgroundColor3 = Color3.fromRGB(21, 28, 41)
+	button.AutoButtonColor = true
+	button.BorderSizePixel = 0
+	button.Parent = buttonsFrame
+
+	local buttonCorner = Instance.new("UICorner")
+	buttonCorner.CornerRadius = UDim.new(0, 8)
+	buttonCorner.Parent = button
+
+	button.MouseButton1Click:Connect(function()
+		selectedCharacter = characterName
+		statsFrame.Visible = true
+		powerFrame.Visible = true
+		chooserFrame.Visible = false
+		(selectRemote :: RemoteEvent):FireServer(characterName)
+		buildPowerButtons(characterName)
+
+		local character = player.Character
+		if character then
+			hookCharacter(character)
+		end
+	end)
+end
+
+player.CharacterAdded:Connect(function(character)
+	selectedCharacter = nil
+	chooserFrame.Visible = true
+	statsFrame.Visible = false
+	powerFrame.Visible = false
+	clearPowerButtons()
+	player:SetAttribute("ChosenCharacter", nil)
+	stopTelekinesisHold()
+	levitationControlLoopRunning = false
+	hookCharacter(character)
+end)
+
+UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: boolean)
+	if gameProcessed then
+		return
+	end
+	if not selectedCharacter then
+		return
+	end
+	local powerData = powerByKeyCode[input.KeyCode]
+	if not powerData then
+		return
+	end
+	if powerData.Id == "telekinesis" then
+		startTelekinesisHold()
+	elseif powerData.Id == "astral_projection" or powerData.Id == "molecular_freeze" or powerData.Id == "premonition" or powerData.Id == "levitation" or powerData.Id == "healing" then
+		if activeAbilities[powerData.Id] then
+			powerCastRemoteEvent:FireServer(powerData.Id, mouse.Target, mouse.Hit.Position, "stop")
+		else
+			powerCastRemoteEvent:FireServer(powerData.Id, mouse.Target, mouse.Hit.Position, "start")
+		end
+	else
+		powerCastRemoteEvent:FireServer(powerData.Id, mouse.Target, mouse.Hit.Position)
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input: InputObject, _gameProcessed: boolean)
+	local teleKey = keybindByPowerId.telekinesis
+	if teleKey and input.KeyCode == teleKey then
+		stopTelekinesisHold()
+	end
+end)
+
+mouse.Button1Down:Connect(function()
+	if telekinesisActive and selectedCharacter then
+		powerCastRemoteEvent:FireServer("telekinesis", mouse.Target, mouse.Hit.Position, "push")
+	end
+end)
+
+powerCastRemoteEvent.OnClientEvent:Connect(function(action: any, targetHumanoid: any, duration: any)
+	if action == "ability_cooldown" then
+		if typeof(targetHumanoid) == "string" and type(duration) == "number" then
+			startCooldownVisual(targetHumanoid, duration)
+		end
+		return
+	end
+	if action == "ability_state" then
+		if typeof(targetHumanoid) == "string" and type(duration) == "boolean" then
+			setAbilityButtonActive(targetHumanoid, duration)
+		end
+		return
+	end
+	if action == "premonition_stop" then
+		local camera = Workspace.CurrentCamera
+		local localCharacter = player.Character
+		local localHumanoid = localCharacter and localCharacter:FindFirstChildOfClass("Humanoid")
+		if camera and localHumanoid then
+			camera.CameraSubject = localHumanoid
+		end
+		return
+	end
+	if action ~= "premonition_view" then
+		return
+	end
+	if typeof(targetHumanoid) ~= "Instance" or not targetHumanoid:IsA("Humanoid") then
+		return
+	end
+
+	local camera = Workspace.CurrentCamera
+	if not camera then
+		return
+	end
+
+	local previousSubject = camera.CameraSubject
+	camera.CameraSubject = targetHumanoid
+
+	task.delay(type(duration) == "number" and duration or 4, function()
+		if not camera.Parent then
+			return
+		end
+		local localCharacter = player.Character
+		local localHumanoid = localCharacter and localCharacter:FindFirstChildOfClass("Humanoid")
+		if localHumanoid then
+			camera.CameraSubject = localHumanoid
+		elseif previousSubject then
+			camera.CameraSubject = previousSubject
+		end
+	end)
+end)
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="LocalScript" referent="20">
+          <Properties>
+            <string name="Name">RagdollController</string>
+            <string name="Source"><![CDATA[--[[
+	Local visuals for living Ragdolled status: disable Animate, match Humanoid state.
+	R is not used — server applies constraint ragdoll when Ragdolled is true (same duration as status).
+]]
+
+local CollectionService = game:GetService("CollectionService")
+local Players = game:GetService("Players")
+
+local player = Players.LocalPlayer
+
+local ignoreIDs = {
+	100114491214554,
+}
+
+local ragdollConn: RBXScriptConnection? = nil
+local humanoidStateConn: RBXScriptConnection? = nil
+
+local function stopNonAbilityAnimations(humanoid: Humanoid)
+	local animator = humanoid:FindFirstChildOfClass("Animator")
+	if not animator then
+		return
+	end
+	for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+		local animation = track.Animation
+		if animation and CollectionService:HasTag(animation, "AbilityAnims") then
+			continue
+		end
+		local id = animation and animation.AnimationId
+		local idNum = id and tonumber((id :: string):match("%d+")) or nil
+		if idNum and table.find(ignoreIDs, idNum) then
+			task.delay(1, function()
+				track:Stop()
+			end)
+		else
+			track:Stop()
+		end
+	end
+end
+
+local function applyLocalRagdollVisual(enabled: boolean)
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if not character or not humanoid then
+		return
+	end
+
+	local animate = character:FindFirstChild("Animate")
+	if enabled then
+		humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+		stopNonAbilityAnimations(humanoid)
+		if animate and animate:IsA("LocalScript") then
+			animate.Disabled = true
+		end
+	else
+		if animate and animate:IsA("LocalScript") then
+			animate.Disabled = false
+		end
+		if humanoid.Health > 0 and character:GetAttribute("CombatDeathHandled") ~= true then
+			humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+		end
+	end
+end
+
+local function onRagdolledAttributeChanged(character: Model)
+	applyLocalRagdollVisual(character:GetAttribute("Ragdolled") == true)
+end
+
+local function bindHumanoidStateGuard(character: Model, humanoid: Humanoid)
+	if humanoidStateConn then
+		humanoidStateConn:Disconnect()
+		humanoidStateConn = nil
+	end
+	humanoidStateConn = humanoid.StateChanged:Connect(function(_, newState)
+		if newState == Enum.HumanoidStateType.FallingDown then
+			if
+				character:GetAttribute("Ragdolled") == true
+				or humanoid.Health <= 0
+				or character:GetAttribute("CombatDeathHandled") == true
+			then
+				return
+			end
+			humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+		end
+		local animate = character:FindFirstChild("Animate")
+		if not animate or not animate:IsA("LocalScript") then
+			return
+		end
+		if character:GetAttribute("Ragdolled") ~= true then
+			return
+		end
+		if newState ~= Enum.HumanoidStateType.Physics and newState ~= Enum.HumanoidStateType.GettingUp and animate.Disabled then
+			humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+		end
+	end)
+end
+
+local function onCharacterAdded(character: Model)
+	if ragdollConn then
+		ragdollConn:Disconnect()
+		ragdollConn = nil
+	end
+
+	ragdollConn = character:GetAttributeChangedSignal("Ragdolled"):Connect(function()
+		onRagdolledAttributeChanged(character)
+	end)
+
+	local humanoid = character:WaitForChild("Humanoid", 5) :: Humanoid?
+	if not humanoid then
+		return
+	end
+	bindHumanoidStateGuard(character, humanoid)
+	onRagdolledAttributeChanged(character)
+end
+
+if player.Character then
+	onCharacterAdded(player.Character)
+end
+player.CharacterAdded:Connect(onCharacterAdded)
+]]></string>
+          </Properties>
+        </Item>
+      </Item>
+    </Item>
+  </Item>
+  <Item class="Workspace" referent="21">
+    <Properties>
+      <string name="Name">Workspace</string>
+      <bool name="FilteringEnabled">true</bool>
+      <bool name="NeedsPivotMigration">false</bool>
+    </Properties>
+  </Item>
+</roblox>
